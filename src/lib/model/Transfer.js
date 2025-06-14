@@ -262,8 +262,19 @@ class Transfer {
     }
 
     _convertToApiDetailFormat(transfer) {
-        let raw = JSON.parse(transfer.raw);
-        raw = this._parseRawTransferRequestBodies(raw);
+        let raw = {};
+        try {
+            raw = JSON.parse(transfer.raw);
+        }catch (e) {
+            this.logger.error(`Error at _convertToApiDetailFormat function: ${e}`);
+        }
+
+        try {
+            raw = this._parseRawTransferRequestBodies(raw);
+        }
+        catch(e){
+            this.logger.error(`Error at _parseRawTransferRequestBodies function: ${e}`);
+        }
 
         return {
             needFx: raw.needFx,
@@ -471,7 +482,7 @@ class Transfer {
             return;
         }
 
-        return {
+        const result = {
             idType: p.partyIdInfo && p.partyIdInfo.partyIdType,
             idValue: p.partyIdInfo && p.partyIdInfo.partyIdentifier,
             idSubType: p.partyIdInfo && p.partyIdInfo.partySubIdOrType,
@@ -499,6 +510,9 @@ class Transfer {
         p.partyIdInfo.extensionList &&
         p.partyIdInfo.extensionList.extension,
         };
+
+        this.logger.debug(`PartyFromQuoteRequest: ${util.inspect(result)}`);
+        return result;
     }
 
     _complexNameToDisplayName(p) {
