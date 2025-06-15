@@ -58,13 +58,36 @@ class Transfer {
     _convertToApiFormat(transfer) {
         const raw = JSON.parse(transfer.raw);
 
+        // Simple fallback for amount/currency
+        let amount = transfer.amount;
+        let currency = transfer.currency;
+
+        // If database values are null, try to extract from raw data
+        if (amount === null || currency === null) {
+            if (transfer.direction > 0) { // OUTBOUND
+                amount = raw.amount || amount;
+                currency = raw.currency || currency;
+            } else { // INBOUND
+                // Try to extract from stringified quoteResponse.body
+                if (typeof raw.quoteResponse?.body === 'string') {
+                    try {
+                        const parsedBody = JSON.parse(raw.quoteResponse.body);
+                        amount = parsedBody.transferAmount?.amount || amount;
+                        currency = parsedBody.transferAmount?.currency || currency;
+                    } catch (e) {
+                        // If parsing fails, keep existing values
+                    }
+                }
+            }
+        }
+
         return {
             id: transfer.id,
             batchId: transfer.batch_id,
             institution: transfer.dfsp,
             direction: transfer.direction > 0 ? 'OUTBOUND' : 'INBOUND',
-            currency: transfer.currency,
-            amount: Number(transfer.amount),
+            currency: currency,
+            amount: amount ? Number(amount) : 0,
             type: 'P2P',
             status: Transfer.STATUSES[transfer.success],
             initiatedTimestamp: new Date(transfer.created_at).toISOString(),
@@ -80,9 +103,9 @@ class Transfer {
             homeTransferId: raw.homeTransactionId,
             details: transfer.details,
             errorType:
-        transfer.success === 0
-            ? Transfer._transferLastErrorToErrorType(raw.lastError)
-            : null,
+                transfer.success === 0
+                    ? Transfer._transferLastErrorToErrorType(raw.lastError)
+                    : null,
         };
     }
 
@@ -94,12 +117,16 @@ class Transfer {
     }
 
     _parseRawTransferRequestBodies(transferRaw) {
-    // operate on a copy of incoming object...we dont want side effects
-        const raw = JSON.parse(JSON.stringify(transferRaw));
+        // operate on a copy of incoming object...we dont want side effects
+        //const raw = JSON.parse(JSON.stringify(transferRaw));
+
+        // Use lodash cloneDeep instead of JSON.parse(JSON.stringify())
+        const _ = require('lodash');
+        const raw = _.cloneDeep(transferRaw);
 
         if (
             raw.getPartiesRequest &&
-      typeof raw.getPartiesRequest.body === 'string'
+            typeof raw.getPartiesRequest.body === 'string'
         ) {
             raw.getPartiesRequest.body = JSON.parse(raw.getPartiesRequest.body);
         }
@@ -117,13 +144,13 @@ class Transfer {
         }
         if (
             raw.fxTransferRequest &&
-      typeof raw.fxTransferRequest.body === 'string'
+            typeof raw.fxTransferRequest.body === 'string'
         ) {
             raw.fxTransferRequest.body = JSON.parse(raw.fxTransferRequest.body);
         }
         if (
             raw.fxTransferResponse &&
-      typeof raw.fxTransferResponse.body === 'string'
+            typeof raw.fxTransferResponse.body === 'string'
         ) {
             raw.fxTransferResponse.body = JSON.parse(raw.fxTransferResponse.body);
         }
@@ -164,7 +191,7 @@ class Transfer {
         // If conversionTerms is string , parse to JSON
         if (
             fxQuoteResponse.body &&
-      typeof fxQuoteResponse.body.conversionTerms === 'string'
+            typeof fxQuoteResponse.body.conversionTerms === 'string'
         )
             conversionTerms = JSON.parse(fxQuoteResponse.body.conversionTerms);
 
@@ -174,15 +201,15 @@ class Transfer {
         const transferAmount = {
             sourceAmount: {
                 amount:
-          conversionTerms.sourceAmount && conversionTerms.sourceAmount.amount,
+                    conversionTerms.sourceAmount && conversionTerms.sourceAmount.amount,
                 currency:
-          conversionTerms.sourceAmount && conversionTerms.sourceAmount.currency,
+                    conversionTerms.sourceAmount && conversionTerms.sourceAmount.currency,
             },
             targetAmount: {
                 amount:
-          conversionTerms.targetAmount && conversionTerms.targetAmount.amount,
+                    conversionTerms.targetAmount && conversionTerms.targetAmount.amount,
                 currency:
-          conversionTerms.targetAmount && conversionTerms.targetAmount.currency,
+                    conversionTerms.targetAmount && conversionTerms.targetAmount.currency,
             },
         };
 
@@ -227,12 +254,12 @@ class Transfer {
             // Also check sourceAmount and targetAmount and present or not null
             if (
                 charge.sourceAmount &&
-        charge.sourceAmount.currency === sourceCurrency
+                charge.sourceAmount.currency === sourceCurrency
             )
                 totalSourceCurrencyCharges += sourceAmount;
             if (
                 charge.targetAmount &&
-        charge.targetAmount.currency === targetCurrency
+                charge.targetAmount.currency === targetCurrency
             )
                 totalTargetCurrencyCharges += targetAmount;
         });
@@ -251,30 +278,73 @@ class Transfer {
 
     _calculateExchangeRate(sourceAmount, targetAmount, totalSourceCharges, totalTargetCharges) {
         // Condition for when exchangeRate calculation is not possible , also to avoid divide by zero error
-        if(!sourceAmount || !targetAmount || ((sourceAmount - totalSourceCharges) === 0))
+        if (!sourceAmount || !targetAmount || ((sourceAmount - totalSourceCharges) === 0))
             return null;
         // If the totalTargetCharges and totalSourceCharges are null because of there being no charges the result should not evaluate to Nan. To avoid that checking if the charge is an empty string and setting it to 0 before the calculations
-        if(isNaN(totalTargetCharges))
+        if (isNaN(totalTargetCharges))
             totalTargetCharges = 0;
-        if(isNaN(totalSourceCharges))
+        if (isNaN(totalSourceCharges))
             totalSourceCharges = 0;
-        return ((targetAmount - totalTargetCharges)/(sourceAmount - totalSourceCharges)).toFixed(4);
+        return ((targetAmount - totalTargetCharges) / (sourceAmount - totalSourceCharges)).toFixed(4);
     }
 
     _convertToApiDetailFormat(transfer) {
         let raw = {};
         try {
             raw = JSON.parse(transfer.raw);
-        }catch (e) {
+            this.logger.log('Raw data from transfer.raw:', raw);
+        } catch (e) {
             this.logger.error(`Error at _convertToApiDetailFormat function: ${e}`);
         }
 
         try {
             raw = this._parseRawTransferRequestBodies(raw);
+            this.logger.log('Raw data from transfer.raw:', raw);
         }
-        catch(e){
+        catch (e) {
             this.logger.error(`Error at _parseRawTransferRequestBodies function: ${e}`);
         }
+
+        if (raw.transferId === '01JXN43BRQW7PCQM1XF6MTQRMB') {
+            this.logger.log('Amount: ', raw.amount);
+            this.logger.log('Transfer: ', transfer);
+        }
+
+        // Helper function to get amount/currency with fallbacks
+        const getAmountAndCurrency = () => {
+            // If database has the values, use them
+            if (transfer.amount !== null && transfer.currency !== null) {
+                return {
+                    amount: transfer.amount,
+                    currency: transfer.currency
+                };
+            }
+
+            // Fallback to raw data based on direction
+            if (transfer.direction > 0) { // OUTBOUND
+                return {
+                    amount: raw.amount || null,
+                    currency: raw.currency || null
+                };
+            } else { // INBOUND
+                // Try multiple sources for INBOUND transfers
+                if (raw.quoteResponse?.body?.transferAmount) {
+                    return {
+                        amount: raw.quoteResponse.body.transferAmount.amount,
+                        currency: raw.quoteResponse.body.transferAmount.currency
+                    };
+                } else if (raw.quoteRequest?.body?.amount) {
+                    return {
+                        amount: raw.quoteRequest.body.amount.amount,
+                        currency: raw.quoteRequest.body.amount.currency
+                    };
+                }
+            }
+
+            return { amount: null, currency: null };
+        };
+
+        const { amount, currency } = getAmountAndCurrency();
 
         return {
             needFx: raw.needFx,
@@ -285,26 +355,26 @@ class Transfer {
             confirmationNumber: 0, // TODO: Implement
             sendAmount: transfer.fx_source_amount
                 ? transfer.fx_source_amount
-                : transfer.amount,
+                : amount,
             sendCurrency: transfer.fx_source_currency
                 ? transfer.fx_source_currency
-                : transfer.currency,
+                : currency, 
             dateSubmitted: new Date(transfer.created_at),
             // If needFx is false show default amount and currency else show the fx for receive
             receiveAmount: !raw.needFx
-                ? transfer.amount
+                ? amount 
                 : transfer.fx_target_amount
                     ? transfer.fx_target_amount
                     : '',
             receiveCurrency: !raw.needFx
-                ? transfer.currency
+                ? currency
                 : transfer.fx_target_currency
                     ? transfer.fx_target_currency
                     : '',
             conversionAcceptedDate:
-        raw.fxTransferResponse &&
-        raw.fxTransferResponse.body &&
-        raw.fxTransferResponse.body.completedTimestamp,
+                raw.fxTransferResponse &&
+                raw.fxTransferResponse.body &&
+                raw.fxTransferResponse.body.completedTimestamp,
             senderDetails: {
                 idType: transfer.sender_id_type,
                 idValue: transfer.sender_id_value,
@@ -315,17 +385,17 @@ class Transfer {
             },
             recipientCurrencies: JSON.parse(transfer.supported_currencies),
             recipientInstitution:
-        raw.quoteRequest &&
-        raw.quoteRequest.body &&
-        raw.quoteRequest.body.payee &&
-        raw.quoteRequest.body.payee.partyIdInfo &&
-        raw.quoteRequest.body.payee.partyIdInfo.fspId,
+                raw.quoteRequest &&
+                raw.quoteRequest.body &&
+                raw.quoteRequest.body.payee &&
+                raw.quoteRequest.body.payee.partyIdInfo &&
+                raw.quoteRequest.body.payee.partyIdInfo.fspId,
             conversionType: transfer.direction > 0 ? 'Payer DFSP conversion' : '',
             conversionInstitution:
-        raw.fxQuoteRequest &&
-        raw.fxQuoteRequest.body &&
-        raw.fxQuoteRequest.body.conversionTerms &&
-        raw.fxQuoteRequest.body.conversionTerms.counterPartyFsp,
+                raw.fxQuoteRequest &&
+                raw.fxQuoteRequest.body &&
+                raw.fxQuoteRequest.body.conversionTerms &&
+                raw.fxQuoteRequest.body.conversionTerms.counterPartyFsp,
             conversionState: raw.fulfil
                 ? raw.fulfil.body.transferState
                 : raw.fxTransferResponse && raw.fxTransferResponse.body.conversionState,
@@ -333,62 +403,62 @@ class Transfer {
             transferTerms: {
                 transferId: transfer.id,
                 quoteAmount: {
-                    amount: transfer.amount,
-                    currency: transfer.currency,
+                    amount: amount, 
+                    currency: currency,
                 },
                 quoteAmountType: raw.quoteRequest && raw.quoteRequest.body.amountType,
                 transferAmount: {
                     amount:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.transferAmount &&
-            raw.quoteResponse.body.transferAmount.amount,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.transferAmount &&
+                        raw.quoteResponse.body.transferAmount.amount,
                     currency:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.transferAmount &&
-            raw.quoteResponse.body.transferAmount.currency,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.transferAmount &&
+                        raw.quoteResponse.body.transferAmount.currency,
                 },
                 payeeReceiveAmount: {
                     amount:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeReceiveAmount &&
-            raw.quoteResponse.body.payeeReceiveAmount.amount,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeReceiveAmount &&
+                        raw.quoteResponse.body.payeeReceiveAmount.amount,
                     currency:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeReceiveAmount &&
-            raw.quoteResponse.body.payeeReceiveAmount.currency,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeReceiveAmount &&
+                        raw.quoteResponse.body.payeeReceiveAmount.currency,
                 },
                 payeeDfspFee: {
                     amount:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeFspFee &&
-            raw.quoteResponse.body.payeeFspFee.amount,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeFspFee &&
+                        raw.quoteResponse.body.payeeFspFee.amount,
                     currency:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeFspFee &&
-            raw.quoteResponse.body.payeeFspFee.currency,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeFspFee &&
+                        raw.quoteResponse.body.payeeFspFee.currency,
                 },
                 payeeDfspCommision: {
                     amount:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeFspCommission &&
-            raw.quoteResponse.body.payeeFspCommission.amount,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeFspCommission &&
+                        raw.quoteResponse.body.payeeFspCommission.amount,
                     currency:
-            raw.quoteResponse &&
-            raw.quoteResponse.body &&
-            raw.quoteResponse.body.payeeFspCommission &&
-            raw.quoteResponse.body.payeeFspCommission.currency,
+                        raw.quoteResponse &&
+                        raw.quoteResponse.body &&
+                        raw.quoteResponse.body.payeeFspCommission &&
+                        raw.quoteResponse.body.payeeFspCommission.currency,
                 },
                 expiryDate:
-          raw.quoteResponse &&
-          raw.quoteResponse.body &&
-          raw.quoteResponse.body.expiration,
+                    raw.quoteResponse &&
+                    raw.quoteResponse.body &&
+                    raw.quoteResponse.body.expiration,
                 conversionTerms: this._getConversionTermsFromFxQuoteResponse(
                     raw.fxQuoteResponse
                 ),
@@ -403,26 +473,26 @@ class Transfer {
             technicalDetails: {
                 schemeTransferId: raw.transferId,
                 transactionId:
-          raw.quoteRequest &&
-          raw.quoteRequest.body &&
-          raw.quoteRequest.body.transactionId,
+                    raw.quoteRequest &&
+                    raw.quoteRequest.body &&
+                    raw.quoteRequest.body.transactionId,
                 conversionState: raw.fulfil
                     ? raw.fulfil.body.transferState
                     : raw.fxTransferResponse &&
-            raw.fxTransferResponse.body.conversionState,
+                    raw.fxTransferResponse.body.conversionState,
                 conversionId:
-          raw.fxQuoteRequest &&
-          raw.fxQuoteRequest.body &&
-          raw.fxQuoteRequest.body.conversionTerms &&
-          raw.fxQuoteRequest.body.conversionTerms.conversionId,
+                    raw.fxQuoteRequest &&
+                    raw.fxQuoteRequest.body &&
+                    raw.fxQuoteRequest.body.conversionTerms &&
+                    raw.fxQuoteRequest.body.conversionTerms.conversionId,
                 conversionQuoteId:
-          raw.fxQuoteRequest &&
-          raw.fxQuoteRequest.body &&
-          raw.fxQuoteRequest.body.conversionRequestId,
+                    raw.fxQuoteRequest &&
+                    raw.fxQuoteRequest.body &&
+                    raw.fxQuoteRequest.body.conversionRequestId,
                 quoteId:
-          raw.quoteRequest &&
-          raw.quoteRequest.body &&
-          raw.quoteRequest.body.quoteId,
+                    raw.quoteRequest &&
+                    raw.quoteRequest.body &&
+                    raw.quoteRequest.body.quoteId,
                 commitRequestId: transfer.fx_commit_request_id,
                 homeTransferId: raw.homeTransactionId,
                 payerParty: this._getPartyFromQuoteRequest(raw.quoteRequest, 'payer'),
@@ -448,7 +518,7 @@ class Transfer {
                     body: raw.fxTransferRequest && raw.fxTransferRequest.body,
                 },
                 fxTransferFulfilment:
-          raw.fxTransferResponse && raw.fxTransferResponse.body,
+                    raw.fxTransferResponse && raw.fxTransferResponse.body,
                 transferPrepare: {
                     headers: raw.prepare && raw.prepare.headers,
                     body: raw.prepare && raw.prepare.body,
@@ -487,28 +557,28 @@ class Transfer {
             idValue: p.partyIdInfo && p.partyIdInfo.partyIdentifier,
             idSubType: p.partyIdInfo && p.partyIdInfo.partySubIdOrType,
             displayName:
-        p.name ||
-        (p.personalInfo &&
-          this._complexNameToDisplayName(p.personalInfo.complexName)),
+                p.name ||
+                (p.personalInfo &&
+                    this._complexNameToDisplayName(p.personalInfo.complexName)),
             firstName:
-        p.personalInfo &&
-        p.personalInfo.complexName &&
-        p.personalInfo.complexName.firstName,
+                p.personalInfo &&
+                p.personalInfo.complexName &&
+                p.personalInfo.complexName.firstName,
             middleName:
-        p.personalInfo &&
-        p.personalInfo.complexName &&
-        p.personalInfo.complexName.middleName,
+                p.personalInfo &&
+                p.personalInfo.complexName &&
+                p.personalInfo.complexName.middleName,
             lastName:
-        p.personalInfo &&
-        p.personalInfo.complexName &&
-        p.personalInfo.complexName.lastName,
+                p.personalInfo &&
+                p.personalInfo.complexName &&
+                p.personalInfo.complexName.lastName,
             dateOfBirth: p.personalInfo && p.personalInfo.dateOfBirth,
             merchantClassificationCode: p.merchantClassificationCode,
             fspId: p.partyIdInfo && p.partyIdInfo.fspId,
             extensionList:
-        p.partyIdInfo &&
-        p.partyIdInfo.extensionList &&
-        p.partyIdInfo.extensionList.extension,
+                p.partyIdInfo &&
+                p.partyIdInfo.extensionList &&
+                p.partyIdInfo.extensionList.extension,
         };
 
         this.logger.debug(`PartyFromQuoteRequest: ${util.inspect(result)}`);
@@ -520,8 +590,7 @@ class Transfer {
             return;
         }
         // Since any of the firstName/middleName/lastName can be undefined/null we need to concatenate conditionally and then trim
-        return `${p.firstName ? p.firstName : ''}${
-            p.middleName ? ' ' + p.middleName : ''
+        return `${p.firstName ? p.firstName : ''}${p.middleName ? ' ' + p.middleName : ''
         } ${p.lastName ? p.lastName : ''}`.trim();
     }
 
@@ -532,10 +601,9 @@ class Transfer {
             idValue: party.idValue,
             idSubType: party.idSubType,
             displayName:
-        party.displayName ||
-        `${party.firstName ? party.firstName : ''}${
-            party.middleName ? ' ' + party.middleName : ''
-        } ${party.lastName ? party.lastName : ''}`.trim(),
+                party.displayName ||
+                `${party.firstName ? party.firstName : ''}${party.middleName ? ' ' + party.middleName : ''
+                } ${party.lastName ? party.lastName : ''}`.trim(),
             firstName: party.firstName,
             middleName: party.middleName,
             lastName: party.lastName,
@@ -639,7 +707,7 @@ class Transfer {
 
         const rows = await query;
         return rows.map(this._convertToApiFormat.bind(this));
-    // return this._requests.get('transfers', opts);
+        // return this._requests.get('transfers', opts);
     }
 
     /**
@@ -934,11 +1002,10 @@ class Transfer {
                         )
                     ) // trunc (milli)seconds
                     .whereRaw(
-                        `(${now} - created_at) < ${
-                            (opts.hoursPrevious || 10) * 3600 * 1000
+                        `(${now} - created_at) < ${(opts.hoursPrevious || 10) * 3600 * 1000
                         }`
                     )
-                // .andWhere('success', true)
+                    // .andWhere('success', true)
                     .groupByRaw('created_at / (3600 * 1000), currency, direction')
             );
         };

@@ -251,7 +251,7 @@ async function syncDB({ redisCache, db, logger }) {
                             err,
                             key,
                             fxQuoteRequestData: JSON.stringify(fxQuoteRequest)
-                        }).log("Error creating fx_quote_row");
+                        }).log('Error creating fx_quote_row');
 
                         // Instead of throwing the error, just log it and continue
                         fx_quote_row = null;
@@ -350,20 +350,20 @@ async function syncDB({ redisCache, db, logger }) {
                 try {
                     await db('transfer').insert(row);
                 } catch (err) {
-                    logger.log("Error inserting transfer", err);
+                    logger.log('Error inserting transfer', err);
                 }
                 if (fx_quote_row != undefined && fx_quote_row != null) {
                     try {
                         await db('fx_quote').insert(fx_quote_row);
                     } catch (err) {
-                        logger.log("Error inserting fx_quote", err);
+                        logger.log('Error inserting fx_quote', err);
                     }
                 }
                 if (fx_transfer_row != undefined && fx_transfer_row != null) {
                     try {
                         await db('fx_transfer').insert(fx_transfer_row);
                     } catch (err) {
-                        logger.log("Error inserting fx_transfer", err);
+                        logger.log('Error inserting fx_transfer', err);
                     }
                 }
                 cachedPendingKeys.push(row.redis_key);
@@ -371,20 +371,20 @@ async function syncDB({ redisCache, db, logger }) {
                 try {
                     await db('transfer').where({ redis_key: row.redis_key }).update(row);
                 } catch (err) {
-                    logger.log("Error updating transfer", err);
+                    logger.log('Error updating transfer', err);
                 }
                 if (fx_quote_row != null && fx_quote_row != undefined) {
                     try {
                         await db('fx_quote').where({ redis_key: fx_quote_row.redis_key }).update(fx_quote_row);
                     } catch (err) {
-                        logger.log("Error updating fx_quote", err);
+                        logger.log('Error updating fx_quote', err);
                     }
                 }
                 if (fx_transfer_row != undefined && fx_transfer_row != null) {
                     try {
                         await db('fx_transfer').where({ redis_key: fx_transfer_row.redis_key }).update(fx_transfer_row);
                     } catch (err) {
-                        logger.log("Error updating fx_transfer", err);
+                        logger.log('Error updating fx_transfer', err);
                     }
                 }
                 // cachedPendingKeys.splice(keyIndex, 1);
@@ -536,14 +536,14 @@ async function syncDB({ redisCache, db, logger }) {
                             try {
                                 await db('fx_quote').insert(fxQuoteRow);
                             } catch (err) {
-                                logger.log("Error inserting fx_quote", err);
+                                logger.log('Error inserting fx_quote', err);
                             }
                         }
                         if (fxTransferRow !== undefined && fxTransferRow !== null) {
                             try {
                                 await db('fx_transfer').insert(fxTransferRow);
                             } catch (err) {
-                                logger.log("Error inserting fx_transfer", err);
+                                logger.log('Error inserting fx_transfer', err);
                             }
                         }
                         cachedPendingKeys.push(fxQuoteRow.redis_key);
@@ -553,14 +553,14 @@ async function syncDB({ redisCache, db, logger }) {
                             try {
                                 await db('fx_quote').where({ redis_key: fxQuoteRow.redis_key }).update(fxQuoteRow);
                             } catch (err) {
-                                logger.log("Error inserting fx_quote", err);
+                                logger.log('Error inserting fx_quote', err);
                             }
                         }
                         if (fxTransferRow != undefined && fxTransferRow != null) {
                             try {
                                 await db('fx_transfer').where({ redis_key: fxTransferRow.redis_key }).update(fxTransferRow);
                             } catch (err) {
-                                logger.log("Error inserting fx_transfer", err);
+                                logger.log('Error inserting fx_transfer', err);
                             }
                         }
                     }
