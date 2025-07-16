@@ -633,7 +633,6 @@ class Transfer {
         if (this.mockData) {
             return mock.getTransfers(opts);
         }
-        const DEFAULT_LIMIT = 100;
 
         const query = this._db('transfer').whereRaw('true');
         if (opts.id) {
@@ -702,7 +701,9 @@ class Transfer {
         if (opts.offset) {
             query.offset(opts.offset);
         }
-        query.limit(opts.limit || DEFAULT_LIMIT);
+        if (opts.limit){
+          query.limit(opts.limit);
+        }
         query.orderBy('created_at');
 
         const rows = await query;
@@ -729,8 +730,6 @@ class Transfer {
         if (this.mockData) {
             return mock.getTransfers(opts);
         }
-
-        const DEFAULT_LIMIT = 100;
 
         const query = this._db('transfer').whereRaw(true);
 
@@ -818,7 +817,10 @@ class Transfer {
         if (opts.offset) {
             query.offset(opts.offset);
         }
-        query.limit(opts.limit || DEFAULT_LIMIT);
+        if (opts.limit) {
+          query.limit(opts.limit);
+        }
+
         query.orderBy('transfer.created_at');
 
         const rows = await query;
