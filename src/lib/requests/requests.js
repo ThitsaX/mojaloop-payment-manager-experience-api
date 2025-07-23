@@ -16,107 +16,97 @@ const { buildUrl, throwOrJson, HTTPResponseError } = require('./common');
 /**
  * A class for making requests to DFSP backend API
  */
+
+const rateLimit = require('express-rate-limit');
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+});
+
 class Requests {
-    constructor(config) {
-        this.logger = config.logger;
+  // ...
 
-        // make sure we keep alive connections to the backend
-        this.agent = new http.Agent({
-            keepAlive: true
+  get(url, qs = {}) {
+    Object.entries(qs).forEach(([k, v]) => {
+      if (v === undefined) {
+        delete qs[k];
+      }
+    });
+    const reqOpts = {
+      method: 'GET',
+      uri: buildUrl(this.endpoint, url),
+      headers: this._buildHeaders(),
+      qs,
+    };
+
+    this.logger.push({ reqOpts }).log('Executing HTTP GET');
+    return limiter(reqOpts, async (req, res) => {
+      return request({...reqOpts, agent: this.agent})
+        .then(throwOrJson)
+        .catch(e => {
+          this.logger.push({ e }).log('Error attempting HTTP GET');
+          throw e;
         });
+    });
+  }
 
-        this.transportScheme = 'http';
+  delete(url) {
+    const reqOpts = {
+      method: 'DELETE',
+      uri: buildUrl(this.endpoint, url),
+      headers: this._buildHeaders(),
+    };
 
-        // Switch or peer DFSP endpoint
-        this.endpoint = `${this.transportScheme}://${config.endpoint}`;
-    }
-
-    /**
-     * Utility function for building outgoing request headers as required by the mojaloop api spec
-     *
-     * @returns {object} - headers object for use in requests to mojaloop api endpoints
-     */
-    _buildHeaders () {
-        return {
-            'Content-Type': 'application/json',
-        };
-    }
-
-    get(url, qs = {}) {
-        Object.entries(qs).forEach(([k, v]) => {
-            if (v === undefined) {
-                delete qs[k];
-            }
+    this.logger.push({ reqOpts }).log('Executing HTTP DELETE');
+    return limiter(reqOpts, async (req, res) => {
+      return request({...reqOpts, agent: this.agent})
+        .then(throwOrJson)
+        .catch(e => {
+          this.logger.push({ e }).log('Error attempting HTTP DELETE');
+          throw e;
         });
-        const reqOpts = {
-            method: 'GET',
-            uri: buildUrl(this.endpoint, url),
-            headers: this._buildHeaders(),
-            qs,
-        };
+    });
+  }
 
-        this.logger.push({ reqOpts }).log('Executing HTTP GET');
-        return request({...reqOpts, agent: this.agent})
-            .then(throwOrJson)
-            .catch(e => {
-                this.logger.push({ e }).log('Error attempting HTTP GET');
-                throw e;
-            });
-    }
+  put(url, body) {
+    const reqOpts = {
+      method: 'PUT',
+      uri: buildUrl(this.endpoint, url),
+      headers: this._buildHeaders(),
+      body: JSON.stringify(body),
+    };
 
-    delete(url) {
-        const reqOpts = {
-            method: 'DELETE',
-            uri: buildUrl(this.endpoint, url),
-            headers: this._buildHeaders(),
-        };
+    this.logger.push({ reqOpts }).log('Executing HTTP PUT');
+    return limiter(reqOpts, async (req, res) => {
+      return request({...reqOpts, agent: this.agent})
+        .then(throwOrJson)
+        .catch(e => {
+          this.logger.push({ e }).log('Error attempting HTTP PUT');
+          throw e;
+        });
+    });
+  }
 
-        this.logger.push({ reqOpts }).log('Executing HTTP DELETE');
-        return request({...reqOpts, agent: this.agent})
-            .then(throwOrJson)
-            .catch(e => {
-                this.logger.push({ e }).log('Error attempting HTTP DELETE');
-                throw e;
-            });
-    }
+  post(url, body) {
+    const reqOpts = {
+      method: 'POST',
+      uri: buildUrl(this.endpoint, url),
+      headers: this._buildHeaders(),
+      body: JSON.stringify(body),
+    };
 
-
-    put(url, body) {
-        const reqOpts = {
-            method: 'PUT',
-            uri: buildUrl(this.endpoint, url),
-            headers: this._buildHeaders(),
-            body: JSON.stringify(body),
-        };
-
-        this.logger.push({ reqOpts }).log('Executing HTTP PUT');
-        return request({...reqOpts, agent: this.agent})
-            .then(throwOrJson)
-            .catch(e => {
-                this.logger.push({ e }).log('Error attempting HTTP PUT');
-                throw e;
-            });
-    }
-
-
-    post(url, body) {
-        const reqOpts = {
-            method: 'POST',
-            uri: buildUrl(this.endpoint, url),
-            headers: this._buildHeaders(),
-            body: JSON.stringify(body),
-        };
-
-        this.logger.push({ reqOpts }).log('Executing HTTP POST');
-        return request({...reqOpts, agent: this.agent})
-            .then(throwOrJson)
-            .catch(e => {
-                this.logger.push({ e }).log('Error attempting POST.');
-                throw e;
-            });
-    }
+    this.logger.push({ reqOpts }).log('Executing HTTP POST');
+    return limiter(reqOpts, async (req, res) => {
+      return request({...reqOpts, agent: this.agent})
+        .then(throwOrJson)
+        .catch(e => {
+          this.logger.push({ e }).log('Error attempting POST.');
+          throw e;
+        });
+    });
+  }
 }
-
 
 module.exports = {
     Requests,
