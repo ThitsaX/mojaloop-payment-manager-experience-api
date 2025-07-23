@@ -45,6 +45,7 @@
     "co-body": "^6.0.0",
     "dotenv": "^8.2.0",
     "env-var": "^6.2.0",
+    "express-rate-limit": "^8.0.1",
     "faker": "^4.1.0",
     "knex": "^2.1.0",
     "koa": "^2.13.4",
