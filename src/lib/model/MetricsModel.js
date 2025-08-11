@@ -28,14 +28,14 @@ class MetricsModel {
             throw new Error('metricName must be supplied');
         }
 
-        // default aggregate duration to 20 seconds
+        // default aggregate duration to 600 seconds
         if(!opts.aggregateDurationSeconds) {
-            opts.aggregateDurationSeconds = 20;
+            opts.aggregateDurationSeconds = 600;
         }
 
-        // default resolution to 20 seconds
+        // default resolution to 600 seconds
         if(!opts.resolutionSeconds) {
-            opts.resolutionSeconds = 20;
+            opts.resolutionSeconds = 600;
         }
 
         // default overall range to 1 hour of data
