@@ -68,7 +68,9 @@ class Server {
 
         await this._conf.sessionConfig.store.connect();
 
-        this._api.use(session(this._conf.sessionConfig, this._api));
+        if (this._conf.authConfig.enableAuthClient) {
+          this._api.use(session(this._conf.sessionConfig, this._api));
+        }
 
         // we need to allow cookies to be forwarded from other origins as this api may not
         // be served on the same port as the UI

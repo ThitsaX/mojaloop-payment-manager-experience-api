@@ -14,8 +14,8 @@
 const knex = require('knex');
 const Cache = require('./cache');
 
-const cachedFulfilledKeys = [];
-const cachedPendingKeys = [];
+const cachedFulfilledKeys = new Set();
+const cachedPendingKeys = new Set();
 
 const getName = (userInfo) =>
     userInfo &&
@@ -45,7 +45,9 @@ const getInboundTransferStatus = (data) => {
 
 const getPartyNameFromQuoteRequest = (qr, partyType) => {
     // return display name if we have it
-    if (qr.body[partyType].name) {
+    if (!qr || !qr.body || !qr.body[partyType]) return undefined;
+
+    if (qr.body[partyType].name){
         return qr.body[partyType].name;
     }
 
@@ -345,8 +347,7 @@ async function syncDB({ redisCache, db, logger }) {
             // logger.push({ data }).log('processing cache item');
             // logger.push({ ...row, raw: ''}).log('Row processed');
 
-            const keyIndex = cachedPendingKeys.indexOf(row.redis_key);
-            if (keyIndex === -1) {
+            if (!cachedPendingKeys.has(row.redis_key)) {
                 try {
                     await db('transfer').insert(row);
                 } catch (err) {
@@ -366,7 +367,7 @@ async function syncDB({ redisCache, db, logger }) {
                         logger.log('Error inserting fx_transfer', err);
                     }
                 }
-                cachedPendingKeys.push(row.redis_key);
+                cachedPendingKeys.add(row.redis_key);
             } else {
                 try {
                     await db('transfer').where({ redis_key: row.redis_key }).update(row);
@@ -387,11 +388,10 @@ async function syncDB({ redisCache, db, logger }) {
                         logger.log('Error updating fx_transfer', err);
                     }
                 }
-                // cachedPendingKeys.splice(keyIndex, 1);
             }
 
             if (row.success !== null) {
-                cachedFulfilledKeys.push(key);
+                cachedFulfilledKeys.add(key);
             }
         }
         // When the redis key starts with fxQuote*
@@ -530,8 +530,7 @@ async function syncDB({ redisCache, db, logger }) {
 
             try {
                 if (fxQuoteRow) {
-                    const keyIndex = cachedPendingKeys.indexOf(fxQuoteRow.redis_key);
-                    if (keyIndex === -1) {
+                    if (!cachedPendingKeys.has(fxQuoteRow.redis_key)) {
                         if (fxQuoteRow !== undefined && fxQuoteRow !== null) {
                             try {
                                 await db('fx_quote').insert(fxQuoteRow);
@@ -546,7 +545,7 @@ async function syncDB({ redisCache, db, logger }) {
                                 logger.log('Error inserting fx_transfer', err);
                             }
                         }
-                        cachedPendingKeys.push(fxQuoteRow.redis_key);
+                        cachedPendingKeys.add(fxQuoteRow.redis_key);
                     }
                     else {
                         if (fxQuoteRow != null && fxQuoteRow != undefined) {
@@ -565,7 +564,7 @@ async function syncDB({ redisCache, db, logger }) {
                         }
                     }
                     if (fxQuoteRow.success !== null) {
-                        cachedFulfilledKeys.push(key);
+                        cachedFulfilledKeys.add(key);
                     }
                 }
             } catch (err) {
@@ -577,15 +576,14 @@ async function syncDB({ redisCache, db, logger }) {
     };
 
     // Available key patterns in redis
-    const redisKeys = ['transferModel_*', 'fxQuote_in_*'];
-    redisKeys.forEach(async (key) => {
-        const keys = await redisCache.keys(key);
-        const uncachedOrPendingKeys = keys.filter(
-            (x) => cachedFulfilledKeys.indexOf(x) === -1,
-        );
-        await Promise.all(uncachedOrPendingKeys.map(cacheKey));
-    });
-
+    const patterns = ['transferModel_*', 'fxQuote_in_*'];
+    for (const pattern of patterns) {
+      for await (const key of redisCache.scanIterator(pattern)) {
+        if(!cachedFulfilledKeys.has(key)) {
+          await cacheKey(key);
+        }
+      }
+    }
     // logger.log('In-memory DB sync complete');
 }
 
@@ -612,12 +610,20 @@ const createMemoryCache = async (config) => {
     const redisCache = new Cache(config);
     await redisCache.connect();
 
-    const doSyncDB = () =>
-        syncDB({
-            redisCache,
-            db,
-            logger: config.logger,
-        });
+    let _syncRunning = false;
+    const doSyncDB = async () => {
+      if(!_syncRunning) {
+        config.logger.log('Skip sync: previous sync still running');
+        return
+      }
+      _syncRunning = true;
+
+      try {
+        await syncDB({ redisCache, db, logger: config.logger });
+      } finally {
+        _syncRunning = false;
+      }
+    };
 
     if (!config.manualSync) {
         await doSyncDB();

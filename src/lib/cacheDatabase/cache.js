@@ -110,8 +110,32 @@ class Cache {
    * @param pattern {string} - keys pattern
    */
     async keys(pattern) {
-        assert(this.client);
-        return this.client.keys(pattern);
+        return this.scan(pattern);
+    }
+
+    async scan(pattern, count = 1000) {
+      assert(this.client)
+
+      let cursor = 0;
+      const results = [];
+
+      do {
+        const res = await this.client.scan(cursor, { MATCH: pattern, COUNT: count});
+        cursor = Number(res.cursor);
+        if (res.keys && res.keys.length) results.push(...res.keys);
+      } while (cursor != 0);
+      return results;
+    }
+
+    /**
+    * Async iterator over keys using SCAN (non-blocking)
+    *
+    */
+    async *scanIterator(pattern, count = 1000) {
+      assert(this.client)
+      for await (const key of this.client.scanIterator({ MATCH: pattern, COUNT: count})) {
+        yield key;
+      }
     }
 }
 

@@ -48,9 +48,14 @@ class CookieStore {
             throw new Error('CookieStore instance not connected to cache');
         }
 
+        const sess = await this._client.get(key);
         // this._logger.log(`session get ${key}`);
-        const sess = await (this._client.get(key));
-        return JSON.parse(sess);
+        if (sess == null) return null;
+        try {
+          return JSON.parse(sess);
+        } catch {
+          return sess;
+        }
     }
 
     async set(key, sess, maxAge) { // , { rolling, changed, ctx }) {
