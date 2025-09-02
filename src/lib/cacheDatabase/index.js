@@ -703,7 +703,7 @@ const createMemoryCache = async (config) => {
     };
 
     if (!config.manualSync) {
-        // Initial sync with limits - use try/catch for graceful degradation
+        // Initial sync with limits
         try {
             config.logger.log('Starting initial sync with safety limits');
             await doSyncDB(true); // Initial sync with limits
