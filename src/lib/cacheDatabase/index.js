@@ -612,7 +612,7 @@ const createMemoryCache = async (config) => {
 
     let _syncRunning = false;
     const doSyncDB = async () => {
-      if(!_syncRunning) {
+      if(_syncRunning) {
         config.logger.log('Skip sync: previous sync still running');
         return
       }
