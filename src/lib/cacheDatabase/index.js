@@ -68,7 +68,7 @@ const getPartyNameFromQuoteRequest = (qr, partyType) => {
     }
 };
 
-async function syncDB({ redisCache, db, logger }) {
+async function syncDB({ redisCache, db, logger, isInitialSync = false, config = {} }) {
     logger.log('Syncing cache to in-memory DB');
 
     const parseData = (rawData) => {
@@ -576,17 +576,79 @@ async function syncDB({ redisCache, db, logger }) {
         // db.raw(sqlRaw.replace(/^insert/i, 'insert or ignore')).then(resolve);
     };
 
+    // Batch processing configuration
+    const BATCH_SIZE = config.syncBatchSize || 100; // Process keys in configurable batches
+    const MAX_INITIAL_SYNC_KEYS = isInitialSync ? (config.maxInitialSyncKeys || 1000) : null;
+    
+    // Utility function to process keys in batches
+    const processBatch = async (keys) => {
+        const results = [];
+        for (const key of keys) {
+            try {
+                await cacheKey(key);
+                results.push({ key, status: 'success' });
+            } catch (err) {
+                logger.push({ err, key }).log('Error processing key in batch');
+                results.push({ key, status: 'error', error: err.message });
+            }
+        }
+        return results;
+    };
+
     // Available key patterns in redis
     const redisKeys = ['transferModel_*', 'fxQuote_in_*'];
-    redisKeys.forEach(async (key) => {
-        const keys = await redisCache.keys(key);
-        const uncachedOrPendingKeys = keys.filter(
-            (x) => cachedFulfilledKeys.indexOf(x) === -1,
-        );
-        await Promise.all(uncachedOrPendingKeys.map(cacheKey));
-    });
-
-    // logger.log('In-memory DB sync complete');
+    
+    let totalProcessed = 0;
+    let totalErrors = 0;
+    
+    for (const keyPattern of redisKeys) {
+        try {
+            logger.log(`Processing pattern: ${keyPattern}`);
+            const keys = await redisCache.keys(keyPattern);
+            
+            const uncachedOrPendingKeys = keys.filter(
+                (x) => cachedFulfilledKeys.indexOf(x) === -1,
+            );
+            
+            // Apply initial sync limit if configured
+            const keysToProcess = MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS
+                ? uncachedOrPendingKeys.slice(0, MAX_INITIAL_SYNC_KEYS)
+                : uncachedOrPendingKeys;
+            
+            if (MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS) {
+                logger.log(`Initial sync limited to ${MAX_INITIAL_SYNC_KEYS} keys out of ${uncachedOrPendingKeys.length} total for pattern ${keyPattern}`);
+            }
+            
+            logger.log(`Processing ${keysToProcess.length} keys for pattern: ${keyPattern}`);
+            
+            // Process keys in batches
+            for (let i = 0; i < keysToProcess.length; i += BATCH_SIZE) {
+                const batch = keysToProcess.slice(i, i + BATCH_SIZE);
+                logger.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(keysToProcess.length / BATCH_SIZE)} (${batch.length} keys)`);
+                
+                const batchResults = await processBatch(batch);
+                const batchErrors = batchResults.filter(r => r.status === 'error').length;
+                
+                totalProcessed += batch.length;
+                totalErrors += batchErrors;
+                
+                if (batchErrors > 0) {
+                    logger.log(`Batch completed with ${batchErrors} errors out of ${batch.length} keys`);
+                }
+                
+                // Add small delay between batches to prevent memory spikes
+                if (i + BATCH_SIZE < keysToProcess.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+            
+        } catch (err) {
+            logger.push({ err, keyPattern }).log('Error processing key pattern');
+            totalErrors++;
+        }
+    }
+    
+    logger.log(`In-memory DB sync complete. Processed: ${totalProcessed}, Errors: ${totalErrors}`);
 }
 
 const createMemoryCache = async (config) => {
@@ -612,16 +674,47 @@ const createMemoryCache = async (config) => {
     const redisCache = new Cache(config);
     await redisCache.connect();
 
-    const doSyncDB = () =>
+    const doSyncDB = (isInitialSync = false) =>
         syncDB({
             redisCache,
             db,
             logger: config.logger,
+            isInitialSync,
+            config: config.cacheConfig || config,
         });
 
+    // Progressive sync implementation
+    let backgroundSyncRunning = false;
+    
+    const doProgressiveSync = async () => {
+        if (backgroundSyncRunning) {
+            config.logger.log('Background sync already running, skipping');
+            return;
+        }
+        
+        backgroundSyncRunning = true;
+        try {
+            await doSyncDB(false); // Regular sync without limits
+        } catch (err) {
+            config.logger.push({ err }).log('Error in background sync');
+        } finally {
+            backgroundSyncRunning = false;
+        }
+    };
+
     if (!config.manualSync) {
-        await doSyncDB();
-        const interval = setInterval(doSyncDB, (config.syncInterval || 60) * 1e3);
+        // Initial sync with limits
+        try {
+            config.logger.log('Starting initial sync with safety limits');
+            await doSyncDB(true); // Initial sync with limits
+            config.logger.log('Initial sync completed successfully');
+        } catch (err) {
+            config.logger.push({ err }).log('Initial sync failed, service will continue with empty cache');
+            // Service continues - critical for preventing restart loops
+        }
+        
+        // Set up periodic sync
+        const interval = setInterval(doProgressiveSync, (config.syncInterval || 60) * 1e3);
         db.stopSync = () => clearInterval(interval);
     } else {
         db.sync = doSyncDB;

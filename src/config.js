@@ -24,6 +24,8 @@ module.exports = {
     cacheConfig: {
         redisUrl: env.get('CACHE_REDIS_URL').default('redis://redis/0').asString(),
         syncInterval: env.get('CACHE_SYNC_INTERVAL_SECONDS').default(30).asIntPositive(),
+        syncBatchSize: env.get('CACHE_SYNC_BATCH_SIZE').default(100).asIntPositive(),
+        maxInitialSyncKeys: env.get('CACHE_MAX_INITIAL_SYNC_KEYS').default(1000).asIntPositive(),
     },
     sessionConfig: {
         // sessionConfig is mostly identical to the koa session middleware config object as described here:

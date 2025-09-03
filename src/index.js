@@ -15,6 +15,7 @@ if(require.main === module) {
         const db = await createMemoryCache({
             cacheUrl : config.cacheConfig.redisUrl,
             syncInterval: config.cacheConfig.syncInterval,
+            cacheConfig: config.cacheConfig,
             logger,
         });
 
