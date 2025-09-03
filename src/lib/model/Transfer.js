@@ -1053,6 +1053,113 @@ class Transfer {
             throw err;
         }
     }
+
+    /**
+   * @param opts {Object}
+   * @param [opts.id] {string}
+   * @param [opts.startTimestamp] {string}
+   * @param [opts.endTimestamp] {string}
+   * @param [opts.senderIdType] {string}
+   * @param [opts.senderIdValue] {string}
+   * @param [opts.senderIdSubValue] {string}
+   * @param [opts.recipientIdType] {string}
+   * @param [opts.recipientIdValue] {string}
+   * @param [opts.recipientIdSubValue] {string}
+   * @param [opts.direction] {string}
+   * @param [opts.institution] {string}
+   * @param [opts.batchId] {number}
+   * @param [opts.status] {string}
+   */
+    async count(opts) {
+        if (this.mockData) {
+            return { count: 1000 };
+        }
+
+        const query = this._db('transfer').whereRaw(true);
+
+        if (opts.id) {
+            query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);
+        }
+        if (opts.startTimestamp) {
+            query.andWhere(
+                'transfer.created_at',
+                '>=',
+                new Date(opts.startTimestamp).getTime()
+            );
+        }
+        if (opts.endTimestamp) {
+            query.andWhere(
+                'transfer.created_at',
+                '<',
+                new Date(opts.endTimestamp).getTime()
+            );
+        }
+        if (opts.senderIdType) {
+            query.andWhere(
+                'transfer.sender_id_type',
+                'LIKE',
+                `%${opts.senderIdType}%`
+            );
+        }
+        if (opts.senderIdValue) {
+            query.andWhere(
+                'transfer.sender_id_value',
+                'LIKE',
+                `%${opts.senderIdValue}%`
+            );
+        }
+        if (opts.senderIdSubValue) {
+            query.andWhere(
+                'transfer.sender_id_sub_value',
+                'LIKE',
+                `%${opts.senderIdSubValue}%`
+            );
+        }
+        if (opts.recipientIdType) {
+            query.andWhere(
+                'transfer.recipient_id_type',
+                'LIKE',
+                `%${opts.recipientIdType}%`
+            );
+        }
+        if (opts.recipientIdValue) {
+            query.andWhere(
+                'transfer.recipient_id_value',
+                'LIKE',
+                `%${opts.recipientIdValue}%`
+            );
+        }
+        if (opts.recipientIdSubValue) {
+            query.andWhere(
+                'transfer.recipient_id_sub_value',
+                'LIKE',
+                `%${opts.recipientIdSubValue}%`
+            );
+        }
+        if (opts.direction) {
+            if (opts.direction === 'INBOUND') {
+                query.andWhere('transfer.direction', '=', '-1');
+            } else if (opts.direction === 'OUTBOUND') {
+                query.andWhere('transfer.direction', '=', '1');
+            }
+        }
+        if (opts.institution) {
+            query.andWhere('transfer.dfsp', 'LIKE', `%${opts.institution}%`);
+        }
+        if (opts.batchId) {
+            query.andWhere('transfer.batch_id', 'LIKE', `%${opts.batchId}%`);
+        }
+        if (opts.status) {
+            if (opts.status === 'PENDING') {
+                query.andWhereRaw('transfer.success IS NULL');
+            } else {
+                query.andWhere('transfer.success', opts.status === 'SUCCESS');
+            }
+        }
+
+        const result = await query.count('id as count').first();
+        return { count: result.count };
+    }
 }
 
 Transfer.STATUSES = {
