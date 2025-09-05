@@ -67,6 +67,14 @@ const getTransfers = async (ctx) => {
     ctx.body = await transfer.findAllWithFX({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, offset, limit });
 };
 
+const getTransfersCount = async (ctx) => {
+    const { id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId } = ctx.query;
+
+    const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
+
+    ctx.body = await transfer.count({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId });
+};
+
 
 const getTransferStatusSummary = async (ctx) => {
     const { startTimestamp, endTimestamp } = ctx.query;
@@ -529,6 +537,9 @@ module.exports = {
     },
     '/transfers': {
         get: getTransfers,
+    },
+    '/transfers/count': {
+        get: getTransfersCount,
     },
     '/transfers/{transferId}': {
         get: getTransfer,
