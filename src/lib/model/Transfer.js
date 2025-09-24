@@ -731,100 +731,129 @@ class Transfer {
             return mock.getTransfers(opts);
         }
 
-        const query = this._db('transfer').whereRaw(true);
+        // For large datasets, use optimized pagination approach
+        // First query transfers with filters and pagination, then join FX data only for returned rows
 
-        this._applyJoin(query);
+        // Step 1: Get filtered and paginated transfer records efficiently
+        const baseQuery = this._db('transfer').whereRaw('true');
 
         if (opts.id) {
-            query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);
+            baseQuery.andWhere('id', 'LIKE', `%${opts.id}%`);
         }
         if (opts.startTimestamp) {
-            query.andWhere(
-                'transfer.created_at',
+            baseQuery.andWhere(
+                'created_at',
                 '>=',
                 new Date(opts.startTimestamp).getTime()
             );
         }
         if (opts.endTimestamp) {
-            query.andWhere(
-                'transfer.created_at',
+            baseQuery.andWhere(
+                'created_at',
                 '<',
                 new Date(opts.endTimestamp).getTime()
             );
         }
         if (opts.senderIdType) {
-            query.andWhere(
-                'transfer.sender_id_type',
-                'LIKE',
-                `%${opts.senderIdType}%`
-            );
+            baseQuery.andWhere('sender_id_type', 'LIKE', `%${opts.senderIdType}%`);
         }
         if (opts.senderIdValue) {
-            query.andWhere(
-                'transfer.sender_id_value',
-                'LIKE',
-                `%${opts.senderIdValue}%`
-            );
+            baseQuery.andWhere('sender_id_value', 'LIKE', `%${opts.senderIdValue}%`);
         }
         if (opts.senderIdSubValue) {
-            query.andWhere(
-                'transfer.sender_id_sub_value',
-                'LIKE',
-                `%${opts.senderIdSubValue}%`
-            );
+            baseQuery.andWhere('sender_id_sub_value', 'LIKE', `%${opts.senderIdSubValue}%`);
         }
         if (opts.recipientIdType) {
-            query.andWhere(
-                'transfer.recipient_id_type',
-                'LIKE',
-                `%${opts.recipientIdType}%`
-            );
+            baseQuery.andWhere('recipient_id_type', 'LIKE', `%${opts.recipientIdType}%`);
         }
         if (opts.recipientIdValue) {
-            query.andWhere(
-                'transfer.recipient_id_value',
-                'LIKE',
-                `%${opts.recipientIdValue}%`
-            );
+            baseQuery.andWhere('recipient_id_value', 'LIKE', `%${opts.recipientIdValue}%`);
         }
         if (opts.recipientIdSubValue) {
-            query.andWhere(
-                'transfer.recipient_id_sub_value',
-                'LIKE',
-                `%${opts.recipientIdSubValue}%`
-            );
+            baseQuery.andWhere('recipient_id_sub_value', 'LIKE', `%${opts.recipientIdSubValue}%`);
         }
         if (opts.direction) {
             if (opts.direction === 'INBOUND') {
-                query.andWhere('transfer.direction', '=', '-1');
+                baseQuery.andWhere('direction', '=', '-1');
             } else if (opts.direction === 'OUTBOUND') {
-                query.andWhere('transfer.direction', '=', '1');
+                baseQuery.andWhere('direction', '=', '1');
             }
         }
         if (opts.institution) {
-            query.andWhere('transfer.dfsp', 'LIKE', `%${opts.institution}%`);
+            baseQuery.andWhere('dfsp', 'LIKE', `%${opts.institution}%`);
         }
         if (opts.batchId) {
-            query.andWhere('transfer.batch_id', 'LIKE', `%${opts.batchId}%`);
+            baseQuery.andWhere('batch_id', 'LIKE', `%${opts.batchId}%`);
         }
         if (opts.status) {
             if (opts.status === 'PENDING') {
-                query.andWhereRaw('transfer.success IS NULL');
+                baseQuery.andWhereRaw('success IS NULL');
             } else {
-                query.andWhere('transfer.success', opts.status === 'SUCCESS');
+                baseQuery.andWhere('success', opts.status === 'SUCCESS');
             }
         }
+
+        // Apply ordering and pagination to base query
+        baseQuery.orderBy('created_at');
         if (opts.offset) {
-            query.offset(opts.offset);
+            baseQuery.offset(opts.offset);
         }
         if (opts.limit) {
-          query.limit(opts.limit);
+            baseQuery.limit(opts.limit);
         }
 
-        query.orderBy('transfer.created_at');
+        // Execute the base query first (much faster - uses indexes)
+        const transfers = await baseQuery;
 
-        const rows = await query;
-        return rows.map(this._convertToApiFormat.bind(this));
+        if (transfers.length === 0) {
+            return [];
+        }
+
+        // Step 2: Get FX data only for the returned transfers (much smaller set)
+        const redisKeys = transfers.map(t => t.redis_key).filter(Boolean);
+
+        let fxData = {};
+
+        if (redisKeys.length > 0) {
+            // Get FX quote data for only these specific transfers
+            const fxQuotes = await this._db('fx_quote').whereIn('redis_key', redisKeys);
+            fxQuotes.forEach(fq => {
+                if (!fxData[fq.redis_key]) fxData[fq.redis_key] = {};
+                fxData[fq.redis_key] = {
+                    ...fxData[fq.redis_key],
+                    fx_source_currency: fq.source_currency,
+                    fx_source_amount: fq.source_amount,
+                    fx_target_currency: fq.target_currency,
+                    fx_target_amount: fq.target_amount
+                };
+            });
+
+            // Get FX transfer data for only these specific transfers
+            const fxTransfers = await this._db('fx_transfer').whereIn('redis_key', redisKeys);
+            fxTransfers.forEach(ft => {
+                if (!fxData[ft.redis_key]) fxData[ft.redis_key] = {};
+                fxData[ft.redis_key] = {
+                    ...fxData[ft.redis_key],
+                    fx_transfer_source_currency: ft.source_currency,
+                    fx_transfer_target_currency: ft.target_currency,
+                    fx_commit_request_id: ft.commit_request_id
+                };
+            });
+        }
+
+        // Step 3: Merge transfer and FX data efficiently
+        const enhancedRows = transfers.map(transfer => ({
+            ...transfer,
+            fx_source_currency: fxData[transfer.redis_key]?.fx_source_currency || null,
+            fx_source_amount: fxData[transfer.redis_key]?.fx_source_amount || null,
+            fx_target_currency: fxData[transfer.redis_key]?.fx_target_currency || null,
+            fx_target_amount: fxData[transfer.redis_key]?.fx_target_amount || null,
+            fx_transfer_source_currency: fxData[transfer.redis_key]?.fx_transfer_source_currency || null,
+            fx_transfer_target_currency: fxData[transfer.redis_key]?.fx_transfer_target_currency || null,
+            fx_commit_request_id: fxData[transfer.redis_key]?.fx_commit_request_id || null
+        }));
+
+        return enhancedRows.map(this._convertToApiFormat.bind(this));
     }
 
     /**
@@ -1077,8 +1106,10 @@ class Transfer {
 
         const query = this._db('transfer').whereRaw(true);
 
-        // Apply the same joins as in findAllWithFX to ensure consistent counting
-        this._applyJoin(query);
+        // Apply joins without selecting columns for count query
+        query
+            .leftJoin('fx_quote', 'transfer.redis_key', 'fx_quote.redis_key')
+            .leftJoin('fx_transfer', 'fx_quote.redis_key', 'fx_transfer.redis_key');
 
         if (opts.id) {
             query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);

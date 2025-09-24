@@ -16,6 +16,7 @@ if(require.main === module) {
             cacheUrl : config.cacheConfig.redisUrl,
             syncInterval: config.cacheConfig.syncInterval,
             cacheConfig: config.cacheConfig,
+            databaseConfig: config.databaseConfig,
             logger,
         });
 

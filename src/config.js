@@ -27,6 +27,31 @@ module.exports = {
         syncBatchSize: env.get('CACHE_SYNC_BATCH_SIZE').default(100).asIntPositive(),
         maxInitialSyncKeys: env.get('CACHE_MAX_INITIAL_SYNC_KEYS').default(1000).asIntPositive(),
     },
+    databaseConfig: {
+        client: 'mysql2',
+        connection: {
+            host: env.get('DB_HOST').default('mysql').asString(),
+            port: env.get('DB_PORT').default(3306).asPortNumber(),
+            user: env.get('DB_USER').default('pm4ml').asString(),
+            password: env.get('DB_PASSWORD').default('pm4ml123').asString(),
+            database: env.get('DB_NAME').default('pm4ml_cache').asString(),
+        },
+        pool: {
+            min: env.get('DB_POOL_MIN').default(2).asIntPositive(),
+            max: env.get('DB_POOL_MAX').default(20).asIntPositive(),
+            acquireTimeoutMillis: env.get('DB_ACQUIRE_TIMEOUT').default(60000).asIntPositive(),
+            createTimeoutMillis: env.get('DB_CREATE_TIMEOUT').default(30000).asIntPositive(),
+            destroyTimeoutMillis: env.get('DB_DESTROY_TIMEOUT').default(5000).asIntPositive(),
+            idleTimeoutMillis: env.get('DB_IDLE_TIMEOUT').default(30000).asIntPositive(),
+            reapIntervalMillis: env.get('DB_REAP_INTERVAL').default(1000).asIntPositive(),
+            createRetryIntervalMillis: env.get('DB_CREATE_RETRY_INTERVAL').default(100).asIntPositive(),
+        },
+        migrations: {
+            directory: `${__dirname}/lib/cacheDatabase/migrations`,
+            tableName: 'knex_migrations'
+        },
+        useNullAsDefault: false,
+    },
     sessionConfig: {
         // sessionConfig is mostly identical to the koa session middleware config object as described here:
         // https://github.com/koajs/session

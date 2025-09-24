@@ -113,6 +113,43 @@ class Cache {
         assert(this.client);
         return this.client.keys(pattern);
     }
+
+    /**
+   * Gets keys from the cache using SCAN (non-blocking alternative to KEYS)
+   *
+   * @param pattern {string} - keys pattern
+   * @param options {object} - scan options
+   */
+    async scanKeys(pattern, options = {}) {
+        assert(this.client);
+        const { batchSize = 1000, maxKeys = 100000 } = options;
+        const keys = [];
+        let cursor = 0;
+
+        do {
+            try {
+                const result = await this.client.scan(cursor, {
+                    MATCH: pattern,
+                    COUNT: batchSize
+                });
+
+                cursor = result.cursor;
+                keys.push(...result.keys);
+
+                // Safety limit to prevent infinite loops or excessive memory usage
+                if (keys.length >= maxKeys) {
+                    this.logger?.log(`SCAN reached maximum keys limit (${maxKeys}) for pattern: ${pattern}`);
+                    break;
+                }
+
+            } catch (err) {
+                this.logger?.push({ err, pattern, cursor }).log('Error during SCAN operation');
+                break;
+            }
+        } while (cursor !== 0);
+
+        return keys;
+    }
 }
 
 module.exports = Cache;

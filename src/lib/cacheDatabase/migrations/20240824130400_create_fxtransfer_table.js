@@ -12,8 +12,9 @@ const TABLE_NAME = 'fx_transfer';
 
 async function up(knex) {
     return knex.schema.createTable(TABLE_NAME, (table) => {
-        table.string('redis_key').primary();  // For easy join
-        table.string('commit_request_id').primary();
+        table.increments('auto_id').primary(); // Auto-increment primary key for MySQL
+        table.string('redis_key').notNullable().index();  // For easy join
+        table.string('commit_request_id').notNullable().index();
         table.string('determining_transfer_id');
         table.string('initiating_fsp');
         table.string('counter_party_fsp');
@@ -22,13 +23,18 @@ async function up(knex) {
         table.string('source_currency');
         table.string('target_amount');
         table.string('target_currency');
-        table.string('condition');
-        table.integer('expiration');
+        table.text('condition'); // Could be long, use TEXT
+        table.bigInteger('expiration'); // Use bigint for timestamps
         table.string('conversion_state');
-        table.string('fulfilment');
+        table.text('fulfilment'); // Could be long, use TEXT
         table.integer('direction');
-        table.integer('created_at');
-        table.integer('completed_timestamp');
+        table.bigInteger('created_at'); // Use bigint for timestamps
+        table.bigInteger('completed_timestamp'); // Use bigint for timestamps
+
+        // Add unique constraint on combination that should be unique
+        table.unique(['redis_key', 'commit_request_id']);
+        table.index(['created_at']);
+        table.index(['determining_transfer_id']);
     });
 }
 

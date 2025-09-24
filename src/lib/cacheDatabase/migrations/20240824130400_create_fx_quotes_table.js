@@ -13,8 +13,9 @@ const TABLE_NAME = 'fx_quote';
 
 async function up(knex) {
     return knex.schema.createTable(TABLE_NAME, (table) => {
-        table.string('redis_key').primary();  // Store for easy joining
-        table.string('conversion_request_id').primary();
+        table.increments('auto_id').primary(); // Auto-increment primary key for MySQL
+        table.string('redis_key').notNullable().index();  // Store for easy joining
+        table.string('conversion_request_id').notNullable().index();
         table.string('conversion_id');
         table.string('determining_transfer_id');
         table.string('initiating_fsp');
@@ -27,10 +28,15 @@ async function up(knex) {
         table.string('expiration');
         table.string('condition');
         table.string('direction');
-        table.string('raw');
-        table.integer('created_at');
-        table.integer('completed_at');
+        table.text('raw'); // Use TEXT for large JSON data
+        table.bigInteger('created_at'); // Use bigint for timestamps
+        table.bigInteger('completed_at');
         table.boolean('success'); // TRUE - Fulfill, FALSE - Error, NULL - Pending
+
+        // Add unique constraint on combination that should be unique
+        table.unique(['redis_key', 'conversion_request_id']);
+        table.index(['created_at']);
+        table.index(['success']);
     });
 }
 

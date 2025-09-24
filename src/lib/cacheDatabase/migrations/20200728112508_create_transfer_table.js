@@ -12,8 +12,9 @@ const TABLE_NAME = 'transfer';
 
 async function up(knex) {
     return knex.schema.createTable(TABLE_NAME, (table) => {
-        table.string('id').primary();
-        table.string('redis_key').primary();
+        table.increments('auto_id').primary(); // Auto-increment primary key for MySQL
+        table.string('id').notNullable().index();
+        table.string('redis_key').notNullable().unique().index();
         table.boolean('success'); // TRUE - Fulfill, FALSE - Error, NULL - Pending
         table.string('sender');
         table.string('sender_id_type');
@@ -29,10 +30,15 @@ async function up(knex) {
         table.string('batch_id');
         table.string('details');
         table.string('dfsp');
-        table.integer('created_at');
-        table.integer('completed_at');
-        table.string('raw');
-        table.string('supported_currencies');
+        table.bigInteger('created_at'); // Use bigint for timestamps
+        table.bigInteger('completed_at');
+        table.text('raw'); // Use TEXT for large JSON data
+        table.text('supported_currencies');
+
+        // Add composite index for common queries
+        table.index(['id', 'redis_key']);
+        table.index(['created_at']);
+        table.index(['success']);
     });
 }
 
