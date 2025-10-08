@@ -56,30 +56,35 @@ class Transfer {
     }
 
     _convertToApiFormat(transfer) {
-        const raw = JSON.parse(transfer.raw);
-
-        // Simple fallback for amount/currency
-        let amount = transfer.amount;
-        let currency = transfer.currency;
-
-        // If database values are null, try to extract from raw data
-        if (amount === null || currency === null) {
-            if (transfer.direction > 0) { // OUTBOUND
-                amount = raw.amount || amount;
-                currency = raw.currency || currency;
-            } else { // INBOUND
-                // Try to extract from stringified quoteResponse.body
-                if (typeof raw.quoteResponse?.body === 'string') {
-                    try {
-                        const parsedBody = JSON.parse(raw.quoteResponse.body);
-                        amount = parsedBody.transferAmount?.amount || amount;
-                        currency = parsedBody.transferAmount?.currency || currency;
-                    } catch (e) {
-                        // If parsing fails, keep existing values
-                    }
-                }
+        const raw = JSON.parse(transfer.raw || '{}');
+        const deriveAmountCurrency = () => {
+            if (transfer.amount != null && transfer.currency != null) {
+                return { amount: transfer.amount, currency: transfer.currency };
             }
-        }
+
+            if (transfer.direction > 0) {
+                return { amount: raw.amount ?? null, currency: raw.currency ?? null };
+            }
+
+            const qrBody = typeof raw.quoteResponse?.body === 'string'
+                ? (() => { try { return JSON.parse(raw.quoteResponse.body) } catch { return null } })()
+                : raw.quoteResponse?.body;
+
+            if (qrBody?.transferAmount) {
+                  return { amount: qrBody.transferAmount.amount ?? null, currency: qrBody.transferAmount.currency ?? null };
+            }
+
+            const qReq = typeof raw.quoteRequest?.body === 'string'
+                ? (() => { try { return JSON.parse(raw.quoteRequest.body) } catch { return null } })()
+                : raw.quoteRequest?.body;
+
+            if (qReq?.amount) {
+                return { amount: qReq.amount.amount ?? null, currency: qReq.amount.currency ?? null };
+            }
+
+            return { amount: null, currency: null };
+        };
+        const { amount, currency } = deriveAmountCurrency();
 
         return {
             id: transfer.id,
@@ -358,11 +363,11 @@ class Transfer {
                 : amount,
             sendCurrency: transfer.fx_source_currency
                 ? transfer.fx_source_currency
-                : currency, 
+                : currency,
             dateSubmitted: new Date(transfer.created_at),
             // If needFx is false show default amount and currency else show the fx for receive
             receiveAmount: !raw.needFx
-                ? amount 
+                ? amount
                 : transfer.fx_target_amount
                     ? transfer.fx_target_amount
                     : '',
@@ -403,7 +408,7 @@ class Transfer {
             transferTerms: {
                 transferId: transfer.id,
                 quoteAmount: {
-                    amount: amount, 
+                    amount: amount,
                     currency: currency,
                 },
                 quoteAmountType: raw.quoteRequest && raw.quoteRequest.body.amountType,
