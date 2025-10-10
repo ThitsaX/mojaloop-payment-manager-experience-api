@@ -66,17 +66,39 @@ class Transfer {
                 return { amount: raw.amount ?? null, currency: raw.currency ?? null };
             }
 
-            const qrBody = typeof raw.quoteResponse?.body === 'string'
-                ? (() => { try { return JSON.parse(raw.quoteResponse.body) } catch { return null } })()
-                : raw.quoteResponse?.body;
+            let qrBody = null;
+            if (raw?.quoteResponse?.body == null){
+                qrBody = null
+            }
+            else if (typeof raw.quoteResponse?.body === 'string') {
+                {
+                    try {
+                        qrBody = JSON.parse(raw.quoteResponse.body)
+                    } catch {
+                        qrBody = null
+                    }
+                }
+            } else {
+                qrBody = raw.quoteResponse?.body;
+            }
+
 
             if (qrBody?.transferAmount) {
                   return { amount: qrBody.transferAmount.amount ?? null, currency: qrBody.transferAmount.currency ?? null };
             }
 
-            const qReq = typeof raw.quoteRequest?.body === 'string'
-                ? (() => { try { return JSON.parse(raw.quoteRequest.body) } catch { return null } })()
-                : raw.quoteRequest?.body;
+            let qReq = null;
+            if (raw?.quoteRequest?.body == null) {
+                qReq = null;
+            } else if (typeof raw.quoteRequest.body === 'string') {
+                  try {
+                      qReq = JSON.parse(raw.quoteRequest.body);
+                  } catch {
+                      qReq = null;
+                  }
+            } else {
+                  qReq = raw.quoteRequest.body;
+            }
 
             if (qReq?.amount) {
                 return { amount: qReq.amount.amount ?? null, currency: qReq.amount.currency ?? null };
