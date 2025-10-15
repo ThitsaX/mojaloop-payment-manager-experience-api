@@ -83,7 +83,7 @@ const authenticationRoutes = (client, generators, authConfig) => {
             case '/auth':
                 return await authRouteHandler(ctx, next, client, authConfig);
             case '/logout':
-                return await logoutRouteHandler(ctx);
+                return await logoutRouteHandler(ctx, client, generators, authConfig);
             default:
                 if(checkAuthentication(ctx)) {
                     // special case userInfo route handled here as we
@@ -108,14 +108,34 @@ const authenticationRoutes = (client, generators, authConfig) => {
  *
  * @returns {undefined}
  */
-const logoutRouteHandler = (ctx) => {
-    if(!ctx.session.auth.logoutUrl) {
-        throw new Error('No logout URL stored in session');
+const logoutRouteHandler = (ctx, client, generators, authConfig) => {
+    const idToken = ctx?.session?.auth?.tokenSet?.id_token;
+
+    ctx.session.codeVerifier = generators.codeVerifier();
+    const codeChallenge = generators.codeChallenge(ctx.session.codeVerifier);
+
+    const authUrlAfterLogout = client.authorizationUrl({
+        scope: `openid ${authConfig.scopes}`,
+        resource: authConfig.resourceName,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        prompt: 'login'
+    });
+
+    ctx.session.auth = null;
+
+    if (idToken) {
+        const endSession = client.endSessionUrl({
+            id_token_hint: idToken,
+            post_logout_redirect_uri: authUrlAfterLogout
+        });
+        // ctx.state.logger.log(`Redirecting to OP endSession -> ${endSession}`);
+        ctx.redirect(endSession);
+        return;
     }
 
-    const redirectTo = ctx.session.auth.logoutUrl;
-    ctx.session.auth = null;
-    ctx.redirect(redirectTo);
+    ctx.state.logger.warn('No id_token available at logout; redirecting directly to auth URL.');
+    ctx.redirect(authUrlAfterLogout);
 };
 
 
@@ -233,8 +253,7 @@ const authRouteHandler = async (ctx, next, client, authConfig) => {
     // store the logout url for the user in the session so we can call it when the user
     // requests to logout
     ctx.session.auth.logoutUrl = await client.endSessionUrl({
-        id_token_hint: tokenSet,
-        post_logout_redirect_uri: authConfig.loggedInLandingUrl,
+        id_token_hint: tokenSet.id_token,
     });
 
     // send redirect back to landing page or where our browser requested to
