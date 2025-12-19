@@ -13,24 +13,34 @@ const TABLE_NAME = 'fx_quote';
 
 async function up(knex) {
     return knex.schema.createTable(TABLE_NAME, (table) => {
-        table.string('redis_key').primary();  // Store for easy joining
-        table.string('conversion_request_id').primary();
-        table.string('conversion_id');
-        table.string('determining_transfer_id');
-        table.string('initiating_fsp');
-        table.string('counter_party_fsp');
-        table.string('amount_type');
-        table.string('source_amount');
-        table.string('source_currency');
-        table.string('target_amount');
-        table.string('target_currency');
-        table.string('expiration');
-        table.string('condition');
-        table.string('direction');
-        table.string('raw');
-        table.integer('created_at');
-        table.integer('completed_at');
+        table.string('redis_key', 255).notNullable();  // Store for easy joining
+        table.string('conversion_request_id', 255).notNullable();
+        table.string('conversion_id', 255);
+        table.string('determining_transfer_id', 255);
+        table.string('initiating_fsp', 255);
+        table.string('counter_party_fsp', 255);
+        table.string('amount_type', 50);
+        table.string('source_amount', 50);
+        table.string('source_currency', 10);
+        table.string('target_amount', 50);
+        table.string('target_currency', 10);
+        table.string('expiration', 100);
+        table.string('condition', 255);
+        table.string('direction', 50);
+        table.text('raw', 'longtext');
+        table.bigInteger('created_at');
+        table.bigInteger('completed_at');
         table.boolean('success'); // TRUE - Fulfill, FALSE - Error, NULL - Pending
+
+        // Composite primary key for MySQL
+        table.primary(['redis_key', 'conversion_request_id']);
+
+        // Add indexes for common queries
+        table.index('conversion_id');
+        table.index('determining_transfer_id');
+        table.index('created_at');
+        table.index('completed_at');
+        table.index('success');
     });
 }
 

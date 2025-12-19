@@ -69,7 +69,7 @@ const getPartyNameFromQuoteRequest = (qr, partyType) => {
 };
 
 async function syncDB({ redisCache, db, logger, isInitialSync = false, config = {} }) {
-    logger.log('Syncing cache to in-memory DB');
+    logger.log('Syncing cache to MySQL database');
 
     const parseData = (rawData) => {
         let data;
@@ -605,20 +605,20 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
         try {
             logger.log(`Processing pattern: ${keyPattern}`);
             const keys = await redisCache.keys(keyPattern);
-            
+
             const uncachedOrPendingKeys = keys.filter(
                 (x) => cachedFulfilledKeys.indexOf(x) === -1,
             );
-            
+
             // Apply initial sync limit if configured
             const keysToProcess = MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS
                 ? uncachedOrPendingKeys.slice(0, MAX_INITIAL_SYNC_KEYS)
                 : uncachedOrPendingKeys;
-            
+
             if (MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS) {
                 logger.log(`Initial sync limited to ${MAX_INITIAL_SYNC_KEYS} keys out of ${uncachedOrPendingKeys.length} total for pattern ${keyPattern}`);
             }
-            
+
             logger.log(`Processing ${keysToProcess.length} keys for pattern: ${keyPattern}`);
             
             // Process keys in batches
@@ -648,16 +648,28 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
         }
     }
     
-    logger.log(`In-memory DB sync complete. Processed: ${totalProcessed}, Errors: ${totalErrors}`);
+    logger.log(`MySQL DB sync complete. Processed: ${totalProcessed}, Errors: ${totalErrors}`);
 }
 
 const createMemoryCache = async (config) => {
+    // MySQL configuration for persistent storage
     const knexConfig = {
-        client: 'better-sqlite3',
+        client: 'mysql2',
         connection: {
-            filename: ':memory:',
+            host: config.databaseConfig.host,
+            port: config.databaseConfig.port,
+            user: config.databaseConfig.user,
+            password: config.databaseConfig.password,
+            database: config.databaseConfig.database,
+            connectTimeout: config.databaseConfig.connectionTimeout,
+            timezone: '+00:00', // Use UTC for consistency
+            charset: 'utf8mb4', // Full UTF-8 support including emojis
+            decimalNumbers: true, // Return decimals as numbers, not strings
         },
-        useNullAsDefault: true,
+        pool: config.databaseConfig.pool,
+        acquireConnectionTimeout: config.databaseConfig.acquireConnectionTimeout,
+        // MySQL-specific settings
+        useNullAsDefault: false, // MySQL supports DEFAULT keyword
     };
 
     const db = knex(knexConfig);

@@ -7,7 +7,7 @@ WORKDIR /opt/mojaloop-payment-manager-experience-api
 COPY package.json package-lock.json* /opt/mojaloop-payment-manager-experience-api/
 COPY src /opt/mojaloop-payment-manager-experience-api/src
 
-RUN npm ci --production
+RUN npm install --production --no-optional
 
 FROM node:lts-alpine
 
