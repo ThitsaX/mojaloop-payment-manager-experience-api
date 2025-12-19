@@ -27,6 +27,22 @@ module.exports = {
         syncBatchSize: env.get('CACHE_SYNC_BATCH_SIZE').default(100).asIntPositive(),
         maxInitialSyncKeys: env.get('CACHE_MAX_INITIAL_SYNC_KEYS').default(1000).asIntPositive(),
     },
+    databaseConfig: {
+        host: env.get('DATABASE_HOST').required().asString(),
+        port: env.get('DATABASE_PORT').default(3306).asPortNumber(),
+        user: env.get('DATABASE_USER').required().asString(),
+        password: env.get('DATABASE_PASSWORD').required().asString(),
+        database: env.get('DATABASE_NAME').required().asString(),
+        connectionTimeout: env.get('DATABASE_CONNECTION_TIMEOUT').default(10000).asIntPositive(),
+        acquireConnectionTimeout: env.get('DATABASE_ACQUIRE_TIMEOUT').default(10000).asIntPositive(),
+        pool: {
+            min: env.get('DATABASE_POOL_MIN').default(2).asIntPositive(),
+            max: env.get('DATABASE_POOL_MAX').default(20).asIntPositive(),
+            acquireTimeoutMillis: env.get('DATABASE_POOL_ACQUIRE_TIMEOUT').default(30000).asIntPositive(),
+            idleTimeoutMillis: env.get('DATABASE_POOL_IDLE_TIMEOUT').default(30000).asIntPositive(),
+            createTimeoutMillis: env.get('DATABASE_POOL_CREATE_TIMEOUT').default(30000).asIntPositive(),
+        },
+    },
     sessionConfig: {
         // sessionConfig is mostly identical to the koa session middleware config object as described here:
         // https://github.com/koajs/session

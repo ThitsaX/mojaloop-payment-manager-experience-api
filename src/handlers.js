@@ -28,7 +28,27 @@ const {
 
 
 const healthCheck = async (ctx) => {
-    ctx.body = JSON.stringify({'status':'ok'});
+    const health = {
+        status: 'ok',
+        uptime: process.uptime(),
+        timestamp: Date.now(),
+    };
+
+    try {
+        // Check database connectivity
+        if (ctx.state.cache) {
+            await ctx.state.cache.raw('SELECT 1');
+            health.database = 'connected';
+        }
+    } catch (err) {
+        ctx.state.logger.push({ err }).log('Database health check failed');
+        health.status = 'degraded';
+        health.database = 'disconnected';
+        health.error = err.message;
+        ctx.status = 503; // Service Unavailable
+    }
+
+    ctx.body = JSON.stringify(health);
 };
 
 const getDfspStatus = async (ctx) => {

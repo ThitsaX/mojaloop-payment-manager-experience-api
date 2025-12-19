@@ -12,27 +12,36 @@ const TABLE_NAME = 'transfer';
 
 async function up(knex) {
     return knex.schema.createTable(TABLE_NAME, (table) => {
-        table.string('id').primary();
-        table.string('redis_key').primary();
+        table.string('id', 255).notNullable();
+        table.string('redis_key', 255).notNullable();
         table.boolean('success'); // TRUE - Fulfill, FALSE - Error, NULL - Pending
-        table.string('sender');
-        table.string('sender_id_type');
-        table.string('sender_id_sub_value');
-        table.string('sender_id_value');
-        table.string('recipient');
-        table.string('recipient_id_type');
-        table.string('recipient_id_sub_value');
-        table.string('recipient_id_value');
-        table.string('amount');
-        table.string('currency');
+        table.string('sender', 255);
+        table.string('sender_id_type', 100);
+        table.string('sender_id_sub_value', 100);
+        table.string('sender_id_value', 255);
+        table.string('recipient', 255);
+        table.string('recipient_id_type', 100);
+        table.string('recipient_id_sub_value', 100);
+        table.string('recipient_id_value', 255);
+        table.string('amount', 50);
+        table.string('currency', 10);
         table.integer('direction');
-        table.string('batch_id');
-        table.string('details');
-        table.string('dfsp');
-        table.integer('created_at');
-        table.integer('completed_at');
-        table.string('raw');
-        table.string('supported_currencies');
+        table.string('batch_id', 255);
+        table.text('details');
+        table.string('dfsp', 255);
+        table.bigInteger('created_at');
+        table.bigInteger('completed_at');
+        table.text('raw', 'longtext');
+        table.text('supported_currencies');
+
+        // Composite primary key for MySQL
+        table.primary(['id', 'redis_key']);
+
+        // Add indexes for common queries
+        table.index('created_at');
+        table.index('completed_at');
+        table.index('direction');
+        table.index('success');
     });
 }
 

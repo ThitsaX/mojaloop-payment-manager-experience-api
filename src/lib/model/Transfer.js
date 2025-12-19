@@ -1104,8 +1104,7 @@ class Transfer {
 
         const query = this._db('transfer').whereRaw(true);
 
-        // Apply the same joins as in findAllWithFX to ensure consistent counting
-        this._applyJoin(query);
+        // Skip JOINs for better performance (count() doesn't filter by FX fields)
 
         if (opts.id) {
             query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);
@@ -1187,8 +1186,8 @@ class Transfer {
             }
         }
 
-        // Count distinct transfer.id since JOINs might create duplicates
-        const result = await query.countDistinct('transfer.id as count').first();
+        // Use COUNT(*) for best performance (no JOINs = no duplicates)
+        const result = await query.count('* as count').first();
         return { count: result.count };
     }
 }

@@ -41,7 +41,7 @@
     "@koa/cors": "^5.0.0",
     "@mojaloop/sdk-standard-components": "^18.4.1",
     "ajv": "^6.12.3",
-    "better-sqlite3": "^11.7.2",
+    "mysql2": "^3.11.5",
     "co-body": "^6.0.0",
     "dotenv": "^8.2.0",
     "env-var": "^6.2.0",

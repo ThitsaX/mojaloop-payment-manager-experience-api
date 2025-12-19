@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)",
+      "Bash(wc:*)",
+      "Bash(npm run lint)"
+    ]
+  }
+}
