@@ -731,7 +731,7 @@ class Transfer {
         if (opts.limit){
           query.limit(opts.limit);
         }
-        query.orderBy('created_at');
+        query.orderBy('created_at', 'desc');
 
         const rows = await query;
         return rows.map(this._convertToApiFormat.bind(this));
@@ -848,7 +848,7 @@ class Transfer {
           query.limit(opts.limit);
         }
 
-        query.orderBy('transfer.created_at');
+        query.orderBy('transfer.created_at', 'desc');
 
         const rows = await query;
         return rows.map(this._convertToApiFormat.bind(this));
