@@ -68,6 +68,33 @@ const getPartyNameFromQuoteRequest = (qr, partyType) => {
     }
 };
 
+const stringifyTransferData = (data, sanitize = false) => {
+    if (!sanitize) {
+        return JSON.stringify(data);
+    }
+
+    return JSON.stringify(data, (key, value) => {
+        // Remove Authorization headers (JWT bearer tokens)
+        if (key === 'Authorization' || key === 'authorization') {
+            return undefined;
+        }
+
+        // Remove signature headers
+        if (key === 'fspiop-signature' || key === 'Fspiop-Signature') {
+            return undefined;
+        }
+
+        // Remove other verbose headers
+        if (key === 'traceparent' || key === 'user-agent' ||
+            key === 'accept-encoding' || key === 'connection' ||
+            key === 'x-forwarded-for' || key === 'x-real-ip') {
+            return undefined;
+        }
+
+        return value;
+    });
+};
+
 async function syncDB({ redisCache, db, logger, isInitialSync = false, config = {} }) {
     logger.log('Syncing cache to MySQL database');
 
@@ -147,7 +174,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             const row = {
                 id: data.transferId,
                 redis_key: key, // To be used instead of Transfer.cachedKeys
-                raw: JSON.stringify(data),
+                raw: stringifyTransferData(data, config.sanitizeTransferRawData),
                 created_at: initiatedTimestamp,
                 completed_at: completedTimestamp,
                 ...(data.direction === 'INBOUND' && {
@@ -240,7 +267,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                             expiration: '',
                             condition: '',
                             direction: data.direction,
-                            raw: JSON.stringify(data),
+                            raw: stringifyTransferData(data, config.sanitizeTransferRawData),
                             created_at: initiatedTimestamp,
                             completed_at: completedTimestamp,
                             success: getTransferStatus(data)
@@ -438,7 +465,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                         expiration: '',
                         condition: '',
                         direction: data.direction,
-                        raw: JSON.stringify(data),
+                        raw: stringifyTransferData(data, config.sanitizeTransferRawData),
                         created_at: initiatedTimestamp,
                         completed_at: completedTimestamp,
                         success: getInboundTransferStatus(data)
