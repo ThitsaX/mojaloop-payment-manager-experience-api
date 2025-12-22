@@ -84,7 +84,9 @@ const getTransfers = async (ctx) => {
 
     const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
 
-    ctx.body = await transfer.findAllWithFX({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, offset, limit });
+    // Use findAll() instead of findAllWithFX() since FX features are not being used
+    // This avoids expensive LEFT JOINs with fx_quote and fx_transfer tables
+    ctx.body = await transfer.findAll({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, offset, limit });
 };
 
 const getTransfersCount = async (ctx) => {
