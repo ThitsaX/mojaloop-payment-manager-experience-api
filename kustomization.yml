@@ -1,0 +1,133 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - vault-secret.yaml
+  - keycloak-realm-cr.yaml
+  - rbac-api-resources.yaml
+  - istio-gateway.yaml
+  - vault-rbac.yaml
+  - opentelemetry-instrumentation.yaml
+  - vault-certificate.yaml
+  - orange-vs.yaml
+  - orange-ip-allowlist.yaml
+helmCharts:
+- name: mojaloop-payment-manager
+  releaseName: orange
+  version: 10.2.0
+  repo: https://pm4ml.github.io/mojaloop-payment-manager-helm/repo
+  valuesFile: values-pm4ml.yaml
+  namespace: orange
+  additionalValuesFiles:
+  - values-pm4ml-override.yaml
+- name: finance-portal # admin-portal
+  releaseName: admin-portal
+  version: 4.2.3
+  repo: https://mojaloop.github.io/charts/repo
+  valuesFile: values-admin-portal.yaml
+  namespace: orange
+  includeCRDs: true
+
+patches:
+  - target:
+      kind: Deployment
+      name: orange-experience-api   # match actual Deployment name
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ENABLE_AUTH_CLIENT
+          value: "true"
+
+      # MySQL Database Configuration
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_HOST
+          value: "experience-api-db-pxc"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_PORT
+          value: "3306"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_USER
+          value: "experienceapiuser"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_PASSWORD
+          value: "NDMflvr6xPO4VLyQB_gc"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_NAME
+          value: "experienceapi"
+
+      # Database Connection Timeouts (milliseconds)
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_CONNECTION_TIMEOUT
+          value: "10000"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_ACQUIRE_TIMEOUT
+          value: "10000"
+
+      # Database Connection Pool Settings
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_MIN
+          value: "2"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_MAX
+          value: "20"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_ACQUIRE_TIMEOUT
+          value: "30000"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_IDLE_TIMEOUT
+          value: "30000"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_CREATE_TIMEOUT
+          value: "30000"
+
+      # Cache Sync Configuration
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CACHE_SYNC_INTERVAL_SECONDS
+          value: "30"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CACHE_SYNC_BATCH_SIZE
+          value: "100"
+
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CACHE_MAX_INITIAL_SYNC_KEYS
+          value: "1000"

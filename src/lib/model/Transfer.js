@@ -725,13 +725,26 @@ class Transfer {
                 query.andWhere('success', opts.status === 'SUCCESS');
             }
         }
-        if (opts.offset) {
-            query.offset(opts.offset);
+
+        // Cursor-based pagination (replaces offset/limit for better performance)
+        // Cursor format: "created_at|id"
+        if (opts.cursor) {
+            const [cursorCreatedAt, cursorId] = opts.cursor.split('|');
+            query.andWhere(function() {
+                this.where('created_at', '<', parseInt(cursorCreatedAt))
+                    .orWhere(function() {
+                        this.where('created_at', '=', parseInt(cursorCreatedAt))
+                            .andWhere('id', '<', cursorId);
+                    });
+            });
         }
+
         if (opts.limit){
           query.limit(opts.limit);
         }
-        query.orderBy('created_at', 'desc');
+
+        // Order by created_at DESC, then by id DESC for consistent cursor pagination
+        query.orderBy('created_at', 'desc').orderBy('id', 'desc');
 
         const rows = await query;
         return rows.map(this._convertToApiFormat.bind(this));
@@ -841,14 +854,26 @@ class Transfer {
                 query.andWhere('transfer.success', opts.status === 'SUCCESS');
             }
         }
-        if (opts.offset) {
-            query.offset(opts.offset);
+
+        // Cursor-based pagination (replaces offset/limit for better performance)
+        // Cursor format: "created_at|id" e.g., "1766397103626|01KD2QHKG97P8R4272H0J9KREJ"
+        if (opts.cursor) {
+            const [cursorCreatedAt, cursorId] = opts.cursor.split('|');
+            query.andWhere(function() {
+                this.where('transfer.created_at', '<', parseInt(cursorCreatedAt))
+                    .orWhere(function() {
+                        this.where('transfer.created_at', '=', parseInt(cursorCreatedAt))
+                            .andWhere('transfer.id', '<', cursorId);
+                    });
+            });
         }
+
         if (opts.limit) {
           query.limit(opts.limit);
         }
 
-        query.orderBy('transfer.created_at', 'desc');
+        // Order by created_at DESC, then by id DESC for consistent cursor pagination
+        query.orderBy('transfer.created_at', 'desc').orderBy('transfer.id', 'desc');
 
         const rows = await query;
         return rows.map(this._convertToApiFormat.bind(this));
