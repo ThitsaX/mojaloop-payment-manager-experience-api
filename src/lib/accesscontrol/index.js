@@ -73,7 +73,6 @@ const authenticationRoutes = (client, generators, authConfig) => {
             ctx.state.logger.log('Authenticating request');
         }
 
-        // TODO: refresh route
         switch(ctx.path) {
             case '/health':
                 // always allow unauthorised health checks (to support k8s)
@@ -85,7 +84,8 @@ const authenticationRoutes = (client, generators, authConfig) => {
             case '/logout':
                 return await logoutRouteHandler(ctx, client, generators, authConfig);
             default:
-                if(checkAuthentication(ctx)) {
+                // Check authentication and attempt token refresh if needed
+                if(await checkAndRefreshAuthentication(ctx, client, authConfig)) {
                     // special case userInfo route handled here as we
                     // dont want to pass references to the auth client
                     // around this service
@@ -141,11 +141,12 @@ const logoutRouteHandler = (ctx, client, generators, authConfig) => {
 
 /**
  * Checks that an unexpired authentication token is in the session.
+ * If the token is expired but a refresh token is available, attempts to refresh.
  * Otherwise sets the response to 401 Unauthorized and returns
  *
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-const checkAuthentication = (ctx) => {
+const checkAndRefreshAuthentication = async (ctx, client, authConfig) => {
     if(!ctx.session.auth || !ctx.session.auth.tokenSet
         || isNaN(ctx.session.auth.tokenSet.expires_at)) {
         // we must have authenticated to get past here
@@ -157,13 +158,57 @@ const checkAuthentication = (ctx) => {
     const nowSeconds = (new Date()).getTime() / 1000;
 
     if(ctx.session.auth.tokenSet.expires_at <= nowSeconds) {
-        // the users tokens have expired
-        ctx.state.logger.log('Rejecting request due to expired authentication.'
-            + ` Tokens expired at ${ctx.session.auth.tokenSet.expires_at}`
+        // the users tokens have expired - attempt to refresh
+        ctx.state.logger.log('Access token expired. Attempting to refresh token.'
+            + ` Token expired at ${ctx.session.auth.tokenSet.expires_at}`
             + ` current timestamp is ${nowSeconds}`);
-        ctx.session.auth = null;
-        ctx.status = 401;
-        return false;
+
+        // Check if we have a refresh token
+        if(!ctx.session.auth.tokenSet.refresh_token) {
+            ctx.state.logger.log('No refresh token available. Rejecting request.');
+            ctx.session.auth = null;
+            ctx.status = 401;
+            return false;
+        }
+
+        try {
+            // Attempt to refresh the token
+            const refreshedTokenSet = await client.refresh(ctx.session.auth.tokenSet.refresh_token);
+            ctx.state.logger.log('Successfully refreshed access token');
+
+            // Get updated claims from the new ID token
+            const claims = refreshedTokenSet.claims();
+
+            // Update the session with the new tokens and claims
+            ctx.session.auth.tokenSet = refreshedTokenSet;
+            ctx.session.auth.claims = claims;
+
+            // Update roles and mapped permissions
+            if(claims.realm_access && Array.isArray(claims.realm_access.roles)) {
+                ctx.session.auth.roles = claims.realm_access.roles;
+                ctx.session.auth.permissions = claims.realm_access.roles.reduce((acc, cur) => {
+                    if(authConfig.rolePermissionMap.roles[cur]) {
+                        acc = acc.concat(authConfig.rolePermissionMap.roles[cur]);
+                    }
+                    return acc;
+                }, []);
+            }
+
+            // Update logout URL with new id_token
+            ctx.session.auth.logoutUrl = await client.endSessionUrl({
+                id_token_hint: refreshedTokenSet.id_token,
+            });
+
+            ctx.state.logger.log('Session updated with refreshed tokens');
+            return true;
+
+        } catch(e) {
+            // Token refresh failed (refresh token might be expired or invalid)
+            ctx.state.logger.push(e).log('Failed to refresh token. Rejecting request.');
+            ctx.session.auth = null;
+            ctx.status = 401;
+            return false;
+        }
     }
 
     return true;
