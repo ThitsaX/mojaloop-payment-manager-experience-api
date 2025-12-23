@@ -56,7 +56,8 @@ class Transfer {
     }
 
     _convertToApiFormat(transfer) {
-        const raw = JSON.parse(transfer.raw || '{}');
+        // For list queries (findAll), 'raw' is excluded to improve performance
+        const raw = transfer.raw ? JSON.parse(transfer.raw) : {};
         const deriveAmountCurrency = () => {
             if (transfer.amount != null && transfer.currency != null) {
                 return { amount: transfer.amount, currency: transfer.currency };
@@ -127,10 +128,10 @@ class Transfer {
             recipientIdType: transfer.recipient_id_type,
             recipientIdSubValue: transfer.recipient_id_sub_value,
             recipientIdValue: transfer.recipient_id_value,
-            homeTransferId: raw.homeTransactionId,
+            homeTransferId: raw.homeTransactionId || null,
             details: transfer.details,
             errorType:
-                transfer.success === 0
+                transfer.success === 0 && raw.lastError
                     ? Transfer._transferLastErrorToErrorType(raw.lastError)
                     : null,
         };
@@ -661,7 +662,30 @@ class Transfer {
             return mock.getTransfers(opts);
         }
 
-        const query = this._db('transfer').whereRaw('true');
+        // PERFORMANCE OPTIMIZATION: Explicitly select columns
+        const query = this._db('transfer')
+            .select([
+                'id',
+                'success',
+                'sender',
+                'sender_id_type',
+                'sender_id_sub_value',
+                'sender_id_value',
+                'recipient',
+                'recipient_id_type',
+                'recipient_id_sub_value',
+                'recipient_id_value',
+                'amount',
+                'currency',
+                'direction',
+                'batch_id',
+                'details',
+                'dfsp',
+                'created_at'
+                // EXCLUDE 'raw': not needed for list view
+                // EXCLUDE 'completed_at', 'redis_key', 'supported_currencies': not needed for list view
+            ])
+            .whereRaw('true');
         if (opts.id) {
             query.andWhere('id', 'LIKE', `%${opts.id}%`);
         }
