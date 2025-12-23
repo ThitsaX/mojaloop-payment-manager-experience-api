@@ -719,7 +719,10 @@ const createMemoryCache = async (config) => {
             db,
             logger: config.logger,
             isInitialSync,
-            config: config.cacheConfig || config,
+            config: {
+                ...config.cacheConfig,
+                sanitizeTransferRawData: config.sanitizeTransferRawData
+            },
         });
 
     // Progressive sync implementation
