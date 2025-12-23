@@ -84,6 +84,14 @@ const stringifyTransferData = (data, sanitize = false) => {
             return undefined;
         }
 
+        // Remove headers (can be very large)
+        if (key === 'x-forwarded-client-cert' ||
+            key === 'x-envoy-decorator-operation' ||
+            key === 'x-envoy-peer-metadata' ||
+            key === 'x-envoy-peer-metadata-id') {
+            return undefined;
+        }
+
         // Remove other verbose headers
         if (key === 'traceparent' || key === 'user-agent' ||
             key === 'accept-encoding' || key === 'connection' ||
