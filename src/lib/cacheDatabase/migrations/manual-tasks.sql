@@ -1,20 +1,4 @@
--- Drop auto_id primary key
-ALTER TABLE `experienceapi`.`transfer` CHANGE COLUMN `auto_id` `auto_id` INT NULL , DROP PRIMARY KEY;
-
--- Drop auto_id 
-ALTER TABLE `experienceapi`.`transfer` DROP COLUMN `auto_id`;
-
--- Create composite primary key
-ALTER TABLE `experienceapi`.`transfer` ADD PRIMARY KEY (`id`, `redis_key`, `created_at`);
-
--- Create index with redis_key and createdAt (will take minutes)
-ALTER TABLE transfer DROP INDEX redis_key_UNIQUE, ADD UNIQUE KEY redis_key_UNIQUE (redis_key, created_at);
-
--- Recreate redis_key + created_at index
-ALTER TABLE transfer DROP INDEX redis_key_UNIQUE;
-ALTER TABLE transfer ADD UNIQUE KEY redis_key_UNIQUE (redis_key, created_at);
-
--- Create Partitions for transfer table to cover till the end of 2026
+-- Migration Script: Partitioning and Compressing the 'transfer' Table
 ALTER TABLE `transfer`
   PARTITION BY RANGE (`created_at`) (
       -- Historical data (everything before August 1, 2025)
@@ -53,5 +37,5 @@ ALTER TABLE `transfer`
       PARTITION pmax VALUES LESS THAN MAXVALUE
   );
   
-  -- Compress the transfer table for faster I/O and disk usage
+  -- Enable compression on the 'transfer' table
    ALTER TABLE `transfer` COMPRESSION='zlib';
