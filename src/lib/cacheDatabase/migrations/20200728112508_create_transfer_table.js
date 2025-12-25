@@ -29,13 +29,14 @@ async function up(knex) {
         table.string('batch_id', 255);
         table.text('details');
         table.string('dfsp', 255);
-        table.bigInteger('created_at');
+        table.bigInteger('created_at').notNullable(); // Required for partitioning
         table.bigInteger('completed_at');
         table.text('raw', 'longtext');
         table.text('supported_currencies');
 
-        // Composite primary key for MySQL
-        table.primary(['id', 'redis_key']);
+        // Composite primary key optimized for RANGE partitioning
+        // created_at must be first to enable partition pruning
+        table.primary(['created_at', 'id', 'redis_key']);
 
         // Add indexes for common queries
         table.index('created_at');

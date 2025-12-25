@@ -6,7 +6,11 @@ const TABLE_NAME = 'transfer';
 
 async function up(knex) {
     await knex.schema.table(TABLE_NAME, (table) => {
-        // Standalone index on redis_key for JOINs with fx_quote/fx_transfer
+        // UNIQUE constraint on redis_key with created_at (required for partitioning)
+        // Note: All UNIQUE keys must include the partition key (created_at)
+        table.unique(['redis_key', 'created_at'], 'redis_key_UNIQUE');
+
+        // Regular index on redis_key for JOINs with fx_quote/fx_transfer
         table.index('redis_key', 'idx_transfer_redis_key');
 
         // Indexes for common filters
@@ -28,6 +32,7 @@ async function down(knex) {
         table.dropIndex('batch_id', 'idx_transfer_batch_id');
         table.dropIndex('dfsp', 'idx_transfer_dfsp');
         table.dropIndex('redis_key', 'idx_transfer_redis_key');
+        table.dropUnique(['redis_key', 'created_at'], 'redis_key_UNIQUE');
     });
 }
 
