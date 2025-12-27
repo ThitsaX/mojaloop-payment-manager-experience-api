@@ -21,6 +21,7 @@ module.exports = {
     metricsEndpoint: env.get('METRICS_ENDPOINT').asString(),
     dfspId: env.get('DFSP_ID').asString(),
     enableCors: env.get('ENABLE_CORS').default('false').asBool(),
+    sanitizeTransferRawData: env.get('SANITIZE_TRANSFER_RAW_DATA').default('true').asBool(),
     cacheConfig: {
         redisUrl: env.get('CACHE_REDIS_URL').default('redis://redis/0').asString(),
         syncInterval: env.get('CACHE_SYNC_INTERVAL_SECONDS').default(30).asIntPositive(),

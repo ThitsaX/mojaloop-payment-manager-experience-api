@@ -80,13 +80,23 @@ const getBatch = async (ctx) => {
 };
 
 const getTransfers = async (ctx) => {
-    const { id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, offset, limit } = ctx.query;
+    const { id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, cursor, limit } = ctx.query;
 
     const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
 
     // Use findAll() instead of findAllWithFX() since FX features are not being used
     // This avoids expensive LEFT JOINs with fx_quote and fx_transfer tables
-    ctx.body = await transfer.findAll({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, offset, limit });
+    const results = await transfer.findAll({ id, startTimestamp, endTimestamp, senderIdType, senderIdValue, senderIdSubValue, recipientIdType, recipientIdValue, recipientIdSubValue, direction, institution, status, batchId, cursor, limit });
+
+    // Return results with next cursor for pagination
+    // Cursor format: "created_at|id"
+    ctx.body = {
+        transfers: results,
+        nextCursor: results.length > 0
+            ? `${new Date(results[results.length - 1].initiatedTimestamp).getTime()}|${results[results.length - 1].id}`
+            : null,
+        hasMore: results.length === parseInt(limit || 50) // Indicates if there are more results
+    };
 };
 
 const getTransfersCount = async (ctx) => {

@@ -17,6 +17,7 @@ if(require.main === module) {
             syncInterval: config.cacheConfig.syncInterval,
             cacheConfig: config.cacheConfig,
             databaseConfig: config.databaseConfig,
+            sanitizeTransferRawData: config.sanitizeTransferRawData,
             logger,
         });
 
