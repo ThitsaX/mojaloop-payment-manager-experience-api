@@ -380,9 +380,6 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             // logger.push({ data }).log('processing cache item');
             // logger.push({ ...row, raw: ''}).log('Row processed');
 
-            // Use INSERT IGNORE to skip duplicates without errors
-            // This prevents duplicate key errors that were blocking the event loop
-            // and causing readiness probe timeouts (52s+ sync times)
             try {
                 await db('transfer')
                     .insert(row)
