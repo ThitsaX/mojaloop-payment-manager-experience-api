@@ -14,8 +14,9 @@
 const knex = require('knex');
 const Cache = require('./cache');
 
-const cachedFulfilledKeys = [];
-const cachedPendingKeys = [];
+// NOTE: In-memory tracking arrays const cachedFulfilledKeys = []; const cachedPendingKeys = []; removed in favor of cursor-based checkpoint
+// These arrays caused 115+ MB memory leak and didn't survive pod restarts.
+// Now using sync_state table with Redis SCAN cursor for resumable sync.
 
 const getName = (userInfo) =>
     userInfo &&
@@ -411,15 +412,8 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 }
             }
 
-            // Track in memory for cachedFulfilledKeys check (line 428)
-            const keyIndex = cachedPendingKeys.indexOf(row.redis_key);
-            if (keyIndex === -1) {
-                cachedPendingKeys.push(row.redis_key);
-            }
-
-            if (row.success !== null) {
-                cachedFulfilledKeys.push(key);
-            }
+            // NOTE: In-memory tracking removed - now using cursor-based checkpoint in sync_state table
+            // Previously tracked keys in cachedPendingKeys and cachedFulfilledKeys arrays
         }
         // When the redis key starts with fxQuote*
         else {
@@ -580,15 +574,8 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                         }
                     }
 
-                    // Track in memory
-                    const keyIndex = cachedPendingKeys.indexOf(fxQuoteRow.redis_key);
-                    if (keyIndex === -1) {
-                        cachedPendingKeys.push(fxQuoteRow.redis_key);
-                    }
-
-                    if (fxQuoteRow.success !== null) {
-                        cachedFulfilledKeys.push(key);
-                    }
+                    // NOTE: In-memory tracking removed - now using cursor-based checkpoint in sync_state table
+                    // Previously tracked keys in cachedPendingKeys and cachedFulfilledKeys arrays
                 }
             } catch (err) {
                 logger.push({ err, key }).log('Error processing fx data');
@@ -599,9 +586,9 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
     };
 
     // Batch processing configuration
-    const BATCH_SIZE = config.syncBatchSize || 100; // Process keys in configurable batches
+    const SCAN_COUNT = config.syncBatchSize || 100; // Number of keys to fetch per SCAN iteration
     const MAX_INITIAL_SYNC_KEYS = isInitialSync ? (config.maxInitialSyncKeys || 1000) : null;
-    
+
     // Utility function to process keys in batches
     const processBatch = async (keys) => {
         const results = [];
@@ -617,59 +604,113 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
         return results;
     };
 
+    // Helper function to load sync state from database
+    const loadSyncState = async (keyPattern) => {
+        const state = await db('sync_state')
+            .where('key_pattern', keyPattern)
+            .first();
+
+        return state || {
+            key_pattern: keyPattern,
+            last_cursor: '0',
+            total_processed: 0
+        };
+    };
+
+    // Helper function to save sync state to database
+    const saveSyncState = async (keyPattern, cursor, totalProcessed) => {
+        await db('sync_state')
+            .insert({
+                key_pattern: keyPattern,
+                last_cursor: cursor,
+                total_processed: totalProcessed,
+                last_synced_at: db.fn.now()
+            })
+            .onConflict('key_pattern')
+            .merge({
+                last_cursor: cursor,
+                total_processed: totalProcessed,
+                last_synced_at: db.fn.now(),
+                updated_at: db.fn.now()
+            });
+    };
+
     // Available key patterns in redis
     const redisKeys = ['transferModel_*', 'fxQuote_in_*'];
-    
+
     let totalProcessed = 0;
     let totalErrors = 0;
-    
+
     for (const keyPattern of redisKeys) {
         try {
             logger.log(`Processing pattern: ${keyPattern}`);
-            const keys = await redisCache.keys(keyPattern);
 
-            const uncachedOrPendingKeys = keys.filter(
-                (x) => cachedFulfilledKeys.indexOf(x) === -1,
-            );
+            // Load cursor checkpoint from database
+            const syncState = await loadSyncState(keyPattern);
+            let cursor = syncState.last_cursor;
+            let patternTotalProcessed = syncState.total_processed;
 
-            // Apply initial sync limit if configured
-            const keysToProcess = MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS
-                ? uncachedOrPendingKeys.slice(0, MAX_INITIAL_SYNC_KEYS)
-                : uncachedOrPendingKeys;
+            logger.log(`Resuming from cursor: ${cursor} (${patternTotalProcessed} keys processed in current cycle)`);
 
-            if (MAX_INITIAL_SYNC_KEYS && uncachedOrPendingKeys.length > MAX_INITIAL_SYNC_KEYS) {
-                logger.log(`Initial sync limited to ${MAX_INITIAL_SYNC_KEYS} keys out of ${uncachedOrPendingKeys.length} total for pattern ${keyPattern}`);
-            }
+            let cycleComplete = false;
+            let batchNumber = 0;
 
-            logger.log(`Processing ${keysToProcess.length} keys for pattern: ${keyPattern}`);
-            
-            // Process keys in batches
-            for (let i = 0; i < keysToProcess.length; i += BATCH_SIZE) {
-                const batch = keysToProcess.slice(i, i + BATCH_SIZE);
-                logger.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(keysToProcess.length / BATCH_SIZE)} (${batch.length} keys)`);
-                
-                const batchResults = await processBatch(batch);
-                const batchErrors = batchResults.filter(r => r.status === 'error').length;
-                
-                totalProcessed += batch.length;
-                totalErrors += batchErrors;
-                
-                if (batchErrors > 0) {
-                    logger.log(`Batch completed with ${batchErrors} errors out of ${batch.length} keys`);
-                }
-                
-                // Add small delay between batches to prevent memory spikes
-                if (i + BATCH_SIZE < keysToProcess.length) {
+            // Use SCAN to iterate through keys
+            while (!cycleComplete) {
+                batchNumber++;
+
+                // SCAN returns [nextCursor, keys]
+                const [nextCursor, keys] = await redisCache.scan(cursor, keyPattern, SCAN_COUNT);
+
+                if (keys.length > 0) {
+                    logger.log(`Processing batch ${batchNumber} from cursor ${cursor}: ${keys.length} keys found`);
+
+                    // Process the batch
+                    const batchResults = await processBatch(keys);
+                    const batchErrors = batchResults.filter(r => r.status === 'error').length;
+
+                    patternTotalProcessed += keys.length;
+                    totalProcessed += keys.length;
+                    totalErrors += batchErrors;
+
+                    if (batchErrors > 0) {
+                        logger.log(`Batch ${batchNumber} completed with ${batchErrors} errors out of ${keys.length} keys`);
+                    }
+
+                    // Save checkpoint after each batch
+                    await saveSyncState(keyPattern, nextCursor, patternTotalProcessed);
+
+                    // Small delay between batches to prevent memory/CPU spikes
                     await new Promise(resolve => setTimeout(resolve, 10));
+                } else {
+                    logger.log(`Batch ${batchNumber} from cursor ${cursor}: no keys found`);
+                }
+
+                // Check if we've completed a full cycle
+                if (nextCursor === '0') {
+                    cycleComplete = true;
+                    logger.log(`Full scan cycle complete for pattern ${keyPattern}. Processed ${patternTotalProcessed} keys total.`);
+
+                    // Reset counter for next cycle
+                    await saveSyncState(keyPattern, '0', 0);
+                } else {
+                    cursor = nextCursor;
+                }
+
+                // Apply initial sync limit (only on first startup)
+                if (MAX_INITIAL_SYNC_KEYS && patternTotalProcessed >= MAX_INITIAL_SYNC_KEYS) {
+                    logger.log(`Initial sync limit reached: ${patternTotalProcessed}/${MAX_INITIAL_SYNC_KEYS} keys processed for pattern ${keyPattern}`);
+                    logger.log(`Cursor saved at position ${nextCursor} - will resume from here on next sync`);
+                    break;
                 }
             }
-            
+
         } catch (err) {
             logger.push({ err, keyPattern }).log('Error processing key pattern');
             totalErrors++;
         }
     }
-    
+
     logger.log(`MySQL DB sync complete. Processed: ${totalProcessed}, Errors: ${totalErrors}`);
 }
 
