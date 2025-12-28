@@ -297,9 +297,9 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                     fx_quote_row = null;
                 }
             }
-            else {
-                logger.log('fxQuoteRequest does not exist on', key);
-            }
+            // else {
+            //     // fxQuoteRequest is optional - not logging when missing to reduce log noise
+            // }
 
             if (data.fxQuoteResponse && fx_quote_row) {
                 try {
@@ -321,10 +321,10 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 } catch (err) {
                     logger.push({ err, body: data.fxQuoteResponse.body }).log('Error processing fxQuoteResponse.body');
                 }
-            } else {
-                // code to handle when fxQuoteResponse key does not exist
-                logger.log('fxQuoteResponse does not exist on', key);
             }
+            // else {
+            //     // fxQuoteResponse is optional - not logging when missing to reduce log noise
+            // }
 
             // Check if the fxTransferRequest and fxTransferResponse are present
             let fx_transfer_row = null;
@@ -356,10 +356,10 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                     logger.push({ err, body: data.fxTransferRequest.body }).log('Error processing fxTransferRequest');
                     fx_transfer_row = null;
                 }
-            } else {
-                // code to handle when fxTransferRequest key does not exist
-                logger.log('fxTransferRequest does not exist on', key);
             }
+            // else {
+            //     // fxTransferRequest is optional - not logging when missing to reduce log noise
+            // }
 
             if (data.fxTransferResponse && fx_transfer_row) {
                 try {
@@ -374,9 +374,9 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                     logger.push({ err, body: data.fxTransferResponse.body }).log('Error processing fxTransferResponse');
                 }
             }
-            else {
-                logger.log('fxTransferResponse does not exist on ', key);
-            }
+            // else {
+            //     // fxTransferResponse is optional - not logging when missing to reduce log noise
+            // }
 
             // logger.push({ data }).log('processing cache item');
             // logger.push({ ...row, raw: ''}).log('Row processed');
