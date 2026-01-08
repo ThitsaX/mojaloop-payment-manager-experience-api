@@ -113,6 +113,35 @@ class Cache {
         assert(this.client);
         return this.client.keys(pattern);
     }
+
+    /**
+   * Scans keys from the cache using cursor-based iteration
+   * This is more memory-efficient than keys() for large datasets
+   *
+   * @param cursor {string} - cursor position (use '0' to start)
+   * @param pattern {string} - MATCH pattern (e.g., 'transferModel_*')
+   * @param count {number} - Number of keys to return per iteration
+   * @returns {Promise<[string, string[]]>} - [nextCursor, keys] tuple
+   *   - nextCursor: '0' means iteration complete, other values for resuming
+   *   - keys: array of matching keys found in this iteration
+   */
+    async scan(cursor, pattern, count = 100) {
+        assert(this.client);
+
+        // Convert cursor to number (Redis client expects numeric cursor)
+        // Database stores cursor as VARCHAR
+        const numericCursor = typeof cursor === 'string' ? parseInt(cursor, 10) : cursor;
+
+        // Redis SCAN command with MATCH and COUNT options
+        const result = await this.client.scan(numericCursor, {
+            MATCH: pattern,
+            COUNT: count
+        });
+
+        // result.cursor is the next cursor position
+        // result.keys is the array of keys found
+        return [result.cursor.toString(), result.keys];
+    }
 }
 
 module.exports = Cache;
