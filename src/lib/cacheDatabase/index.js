@@ -18,6 +18,15 @@ const Cache = require('./cache');
 // These arrays caused 115+ MB memory leak and didn't survive pod restarts.
 // Now using sync_state table with Redis SCAN cursor for resumable sync.
 
+const withTimeout = (promise, timeoutMs, errorMsg) => {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(errorMsg || `Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+        )
+    ]);
+};
+
 const getName = (userInfo) =>
     userInfo &&
     (userInfo.displayName || `${userInfo.firstName} ${userInfo.lastName}`);
@@ -151,7 +160,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
         return data;
     };
 
-    const cacheKey = async (key) => {
+    const cacheKey = async (key, trx) => {
         const rawData = await redisCache.get(key);
         const data = parseData(rawData);
 
@@ -159,6 +168,9 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             logger.push({ key }).log('Skipping cache key due to invalid data');
             return;
         }
+
+        const dbInstance = trx || db;
+        const queryTimeout = config.queryTimeout || 30000;
 
         // If the key is for a transfer
         if (key.includes('transferModel')) {
@@ -382,33 +394,57 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             // logger.push({ ...row, raw: ''}).log('Row processed');
 
             try {
-                await db('transfer')
-                    .insert(row)
-                    .onConflict(['created_at', 'id', 'redis_key']) // Composite PRIMARY KEY
-                    .ignore(); // Skip if already exists
+                await withTimeout(
+                    dbInstance('transfer')
+                        .insert(row)
+                        .onConflict(['created_at', 'id', 'redis_key'])
+                        .ignore(),
+                    queryTimeout,
+                    `INSERT timeout for transfer ${row.id}`
+                );
             } catch (err) {
-                logger.push({ err, redis_key: row.redis_key }).log('Error inserting transfer');
+                if (err.message.includes('timeout')) {
+                    logger.push({ err, redis_key: row.redis_key }).log('Database operation timed out, will retry next sync');
+                } else {
+                    logger.push({ err, redis_key: row.redis_key }).log('Error inserting transfer');
+                }
             }
 
             if (fx_quote_row != undefined && fx_quote_row != null) {
                 try {
-                    await db('fx_quote')
-                        .insert(fx_quote_row)
-                        .onConflict(['redis_key', 'conversion_request_id']) // PRIMARY KEY
-                        .ignore();
+                    await withTimeout(
+                        dbInstance('fx_quote')
+                            .insert(fx_quote_row)
+                            .onConflict(['redis_key', 'conversion_request_id'])
+                            .ignore(),
+                        queryTimeout,
+                        `INSERT timeout for fx_quote ${fx_quote_row.conversion_request_id}`
+                    );
                 } catch (err) {
-                    logger.push({ err, redis_key: fx_quote_row.redis_key }).log('Error inserting fx_quote');
+                    if (err.message.includes('timeout')) {
+                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('FX quote insert timed out, will retry next sync');
+                    } else {
+                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('Error inserting fx_quote');
+                    }
                 }
             }
 
             if (fx_transfer_row != undefined && fx_transfer_row != null) {
                 try {
-                    await db('fx_transfer')
-                        .insert(fx_transfer_row)
-                        .onConflict(['redis_key', 'commit_request_id']) // PRIMARY KEY
-                        .ignore();
+                    await withTimeout(
+                        dbInstance('fx_transfer')
+                            .insert(fx_transfer_row)
+                            .onConflict(['redis_key', 'commit_request_id'])
+                            .ignore(),
+                        queryTimeout,
+                        `INSERT timeout for fx_transfer ${fx_transfer_row.commit_request_id}`
+                    );
                 } catch (err) {
-                    logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('Error inserting fx_transfer');
+                    if (err.message.includes('timeout')) {
+                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('FX transfer insert timed out, will retry next sync');
+                    } else {
+                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('Error inserting fx_transfer');
+                    }
                 }
             }
 
@@ -551,31 +587,43 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
 
             try {
                 if (fxQuoteRow) {
-                    // Use INSERT IGNORE for fx_quote and fx_transfer to skip duplicates
                     if (fxQuoteRow !== undefined && fxQuoteRow !== null) {
                         try {
-                            await db('fx_quote')
-                                .insert(fxQuoteRow)
-                                .onConflict(['redis_key', 'conversion_request_id'])
-                                .ignore();
+                            await withTimeout(
+                                dbInstance('fx_quote')
+                                    .insert(fxQuoteRow)
+                                    .onConflict(['redis_key', 'conversion_request_id'])
+                                    .ignore(),
+                                queryTimeout,
+                                `INSERT timeout for fx_quote ${fxQuoteRow.conversion_request_id}`
+                            );
                         } catch (err) {
-                            logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('Error inserting fx_quote');
+                            if (err.message.includes('timeout')) {
+                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('FX quote insert timed out, will retry next sync');
+                            } else {
+                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('Error inserting fx_quote');
+                            }
                         }
                     }
 
                     if (fxTransferRow !== undefined && fxTransferRow !== null) {
                         try {
-                            await db('fx_transfer')
-                                .insert(fxTransferRow)
-                                .onConflict(['redis_key', 'commit_request_id'])
-                                .ignore();
+                            await withTimeout(
+                                dbInstance('fx_transfer')
+                                    .insert(fxTransferRow)
+                                    .onConflict(['redis_key', 'commit_request_id'])
+                                    .ignore(),
+                                queryTimeout,
+                                `INSERT timeout for fx_transfer ${fxTransferRow.commit_request_id}`
+                            );
                         } catch (err) {
-                            logger.push({ err, redis_key: fxTransferRow.redis_key }).log('Error inserting fx_transfer');
+                            if (err.message.includes('timeout')) {
+                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('FX transfer insert timed out, will retry next sync');
+                            } else {
+                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('Error inserting fx_transfer');
+                            }
                         }
                     }
-
-                    // NOTE: In-memory tracking removed - now using cursor-based checkpoint in sync_state table
-                    // Previously tracked keys in cachedPendingKeys and cachedFulfilledKeys arrays
                 }
             } catch (err) {
                 logger.push({ err, key }).log('Error processing fx data');
@@ -592,15 +640,27 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
     // Utility function to process keys in batches
     const processBatch = async (keys) => {
         const results = [];
-        for (const key of keys) {
-            try {
-                await cacheKey(key);
-                results.push({ key, status: 'success' });
-            } catch (err) {
-                logger.push({ err, key }).log('Error processing key in batch');
-                results.push({ key, status: 'error', error: err.message });
+        const trx = await db.transaction();
+
+        try {
+            for (const key of keys) {
+                try {
+                    await cacheKey(key, trx);
+                    results.push({ key, status: 'success' });
+                } catch (err) {
+                    logger.push({ err, key }).log('Error processing key in batch');
+                    results.push({ key, status: 'error', error: err.message });
+                }
             }
+
+            await trx.commit();
+
+        } catch (err) {
+            await trx.rollback();
+            logger.push({ err }).log('Batch transaction failed, rolled back');
+            throw err;
         }
+
         return results;
     };
 
@@ -715,7 +775,6 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
 }
 
 const createMemoryCache = async (config) => {
-    // MySQL configuration for persistent storage
     const knexConfig = {
         client: 'mysql2',
         connection: {
@@ -725,14 +784,14 @@ const createMemoryCache = async (config) => {
             password: config.databaseConfig.password,
             database: config.databaseConfig.database,
             connectTimeout: config.databaseConfig.connectionTimeout,
-            timezone: '+00:00', // Use UTC for consistency
-            charset: 'utf8mb4', // Full UTF-8 support including emojis
-            decimalNumbers: true, // Return decimals as numbers, not strings
+            timeout: config.databaseConfig.queryTimeout || 30000,
+            timezone: '+00:00',
+            charset: 'utf8mb4',
+            decimalNumbers: true,
         },
         pool: config.databaseConfig.pool,
         acquireConnectionTimeout: config.databaseConfig.acquireConnectionTimeout,
-        // MySQL-specific settings
-        useNullAsDefault: false, // MySQL supports DEFAULT keyword
+        useNullAsDefault: false,
     };
 
     const db = knex(knexConfig);
@@ -745,6 +804,14 @@ const createMemoryCache = async (config) => {
 
     await db.migrate.latest({ directory: `${__dirname}/migrations` });
 
+    try {
+        await db.raw(`SET SESSION max_execution_time = ${config.databaseConfig.queryTimeout || 30000}`);
+        await db.raw(`SET SESSION innodb_lock_wait_timeout = ${config.databaseConfig.lockWaitTimeout || 30}`);
+        await db.raw('SET SESSION wait_timeout = 600');
+        config.logger.log('MySQL session timeouts configured successfully');
+    } catch (err) {
+        config.logger.push({ err }).log('Warning: Failed to set MySQL session timeouts');
+    }
 
     const redisCache = new Cache(config);
     await redisCache.connect();
@@ -763,16 +830,25 @@ const createMemoryCache = async (config) => {
 
     // Progressive sync implementation
     let backgroundSyncRunning = false;
+    let lastSyncCompletedAt = Date.now();
+    const SYNC_TIMEOUT_MS = config.cacheConfig.syncStuckDetectionMs || 300000;
     
     const doProgressiveSync = async () => {
         if (backgroundSyncRunning) {
-            config.logger.log('Background sync already running, skipping');
-            return;
+            const stuckDuration = Date.now() - lastSyncCompletedAt;
+            if (stuckDuration > SYNC_TIMEOUT_MS) {
+                config.logger.log(`Sync stuck for ${Math.round(stuckDuration/1000)}s, forcing reset`);
+                backgroundSyncRunning = false;
+            } else {
+                config.logger.log('Background sync already running, skipping');
+                return;
+            }
         }
         
         backgroundSyncRunning = true;
         try {
-            await doSyncDB(false); // Regular sync without limits
+            await doSyncDB(false);
+            lastSyncCompletedAt = Date.now();
         } catch (err) {
             config.logger.push({ err }).log('Error in background sync');
         } finally {

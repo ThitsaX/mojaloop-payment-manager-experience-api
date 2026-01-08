@@ -27,6 +27,8 @@ module.exports = {
         syncInterval: env.get('CACHE_SYNC_INTERVAL_SECONDS').default(30).asIntPositive(),
         syncBatchSize: env.get('CACHE_SYNC_BATCH_SIZE').default(100).asIntPositive(),
         maxInitialSyncKeys: env.get('CACHE_MAX_INITIAL_SYNC_KEYS').default(1000).asIntPositive(),
+        queryTimeout: env.get('DATABASE_QUERY_TIMEOUT_MS').default(180000).asIntPositive(),
+        syncStuckDetectionMs: env.get('SYNC_STUCK_DETECTION_MS').default(300000).asIntPositive(),
     },
     databaseConfig: {
         host: env.get('DATABASE_HOST').required().asString(),
@@ -36,12 +38,16 @@ module.exports = {
         database: env.get('DATABASE_NAME').required().asString(),
         connectionTimeout: env.get('DATABASE_CONNECTION_TIMEOUT').default(10000).asIntPositive(),
         acquireConnectionTimeout: env.get('DATABASE_ACQUIRE_TIMEOUT').default(10000).asIntPositive(),
+        queryTimeout: env.get('DATABASE_QUERY_TIMEOUT_MS').default(180000).asIntPositive(),
+        lockWaitTimeout: env.get('DATABASE_LOCK_WAIT_TIMEOUT').default(30).asIntPositive(),
         pool: {
             min: env.get('DATABASE_POOL_MIN').default(2).asIntPositive(),
             max: env.get('DATABASE_POOL_MAX').default(20).asIntPositive(),
             acquireTimeoutMillis: env.get('DATABASE_POOL_ACQUIRE_TIMEOUT').default(30000).asIntPositive(),
-            idleTimeoutMillis: env.get('DATABASE_POOL_IDLE_TIMEOUT').default(30000).asIntPositive(),
+            idleTimeoutMillis: env.get('DATABASE_POOL_IDLE_TIMEOUT').default(600000).asIntPositive(),
             createTimeoutMillis: env.get('DATABASE_POOL_CREATE_TIMEOUT').default(30000).asIntPositive(),
+            reapIntervalMillis: env.get('DATABASE_POOL_REAP_INTERVAL').default(1000).asIntPositive(),
+            propagateCreateError: false,
         },
     },
     sessionConfig: {
