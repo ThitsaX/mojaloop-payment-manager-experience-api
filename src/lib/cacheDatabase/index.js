@@ -14,8 +14,6 @@
 const knex = require('knex');
 const Cache = require('./cache');
 
-// NOTE: In-memory tracking arrays const cachedFulfilledKeys = []; const cachedPendingKeys = []; removed in favor of cursor-based checkpoint
-// These arrays caused 115+ MB memory leak and didn't survive pod restarts.
 // Now using sync_state table with Redis SCAN cursor for resumable sync.
 
 const withTimeout = (promise, timeoutMs, errorMsg) => {
@@ -448,8 +446,6 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 }
             }
 
-            // NOTE: In-memory tracking removed - now using cursor-based checkpoint in sync_state table
-            // Previously tracked keys in cachedPendingKeys and cachedFulfilledKeys arrays
         }
         // When the redis key starts with fxQuote*
         else {
