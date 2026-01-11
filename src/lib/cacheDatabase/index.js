@@ -41,6 +41,7 @@ const getTransferStatus = (data) => {
 
 const getInboundTransferStatus = (data) => {
     switch (data.currentState) {
+        case 'COMMITTED':
         case 'COMPLETED':
             return true;
         case 'ERROR_OCCURRED':
