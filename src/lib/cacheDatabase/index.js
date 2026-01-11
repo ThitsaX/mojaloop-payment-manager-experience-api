@@ -393,56 +393,115 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             // logger.push({ ...row, raw: ''}).log('Row processed');
 
             try {
-                await withTimeout(
+                // Check if record exists and if state has changed
+                const existing = await withTimeout(
                     dbInstance('transfer')
-                        .insert(row)
-                        .onConflict(['created_at', 'id', 'redis_key'])
-                        .ignore(),
+                        .where('id', row.id)
+                        .first('success'),
                     queryTimeout,
-                    `INSERT timeout for transfer ${row.id}`
+                    `SELECT timeout for transfer ${row.id}`
                 );
+
+                if (!existing) {
+                    // New record - INSERT
+                    await withTimeout(
+                        dbInstance('transfer').insert(row),
+                        queryTimeout,
+                        `INSERT timeout for transfer ${row.id}`
+                    );
+                    logger.debug(`Inserted new transfer ${row.id}`);
+                } else if (existing.success !== row.success) {
+                    // Status changed - UPDATE everything for consistency
+                    await withTimeout(
+                        dbInstance('transfer')
+                            .where('id', row.id)
+                            .update(row),
+                        queryTimeout,
+                        `UPDATE timeout for transfer ${row.id}`
+                    );
+                    logger.debug(`Updated transfer ${row.id}: ${existing.success} -> ${row.success}`);
+                }
+                // else: No change, skip (saves unnecessary writes)
             } catch (err) {
                 if (err.message.includes('timeout')) {
                     logger.push({ err, redis_key: row.redis_key }).log('Database operation timed out, will retry next sync');
                 } else {
-                    logger.push({ err, redis_key: row.redis_key }).log('Error inserting transfer');
+                    logger.push({ err, redis_key: row.redis_key }).log('Error processing transfer');
                 }
             }
 
             if (fx_quote_row != undefined && fx_quote_row != null) {
                 try {
-                    await withTimeout(
+                    const existingFxQuote = await withTimeout(
                         dbInstance('fx_quote')
-                            .insert(fx_quote_row)
-                            .onConflict(['redis_key', 'conversion_request_id'])
-                            .ignore(),
+                            .where('redis_key', fx_quote_row.redis_key)
+                            .where('conversion_request_id', fx_quote_row.conversion_request_id)
+                            .first('success'),
                         queryTimeout,
-                        `INSERT timeout for fx_quote ${fx_quote_row.conversion_request_id}`
+                        `SELECT timeout for fx_quote ${fx_quote_row.conversion_request_id}`
                     );
+
+                    if (!existingFxQuote) {
+                        await withTimeout(
+                            dbInstance('fx_quote').insert(fx_quote_row),
+                            queryTimeout,
+                            `INSERT timeout for fx_quote ${fx_quote_row.conversion_request_id}`
+                        );
+                        logger.debug(`Inserted new fx_quote ${fx_quote_row.conversion_request_id}`);
+                    } else if (existingFxQuote.success !== fx_quote_row.success) {
+                        await withTimeout(
+                            dbInstance('fx_quote')
+                                .where('redis_key', fx_quote_row.redis_key)
+                                .where('conversion_request_id', fx_quote_row.conversion_request_id)
+                                .update(fx_quote_row),
+                            queryTimeout,
+                            `UPDATE timeout for fx_quote ${fx_quote_row.conversion_request_id}`
+                        );
+                        logger.debug(`Updated fx_quote ${fx_quote_row.conversion_request_id}`);
+                    }
                 } catch (err) {
                     if (err.message.includes('timeout')) {
-                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('FX quote insert timed out, will retry next sync');
+                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('FX quote operation timed out, will retry next sync');
                     } else {
-                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('Error inserting fx_quote');
+                        logger.push({ err, redis_key: fx_quote_row.redis_key }).log('Error processing fx_quote');
                     }
                 }
             }
 
             if (fx_transfer_row != undefined && fx_transfer_row != null) {
                 try {
-                    await withTimeout(
+                    const existingFxTransfer = await withTimeout(
                         dbInstance('fx_transfer')
-                            .insert(fx_transfer_row)
-                            .onConflict(['redis_key', 'commit_request_id'])
-                            .ignore(),
+                            .where('redis_key', fx_transfer_row.redis_key)
+                            .where('commit_request_id', fx_transfer_row.commit_request_id)
+                            .first('conversion_state'),
                         queryTimeout,
-                        `INSERT timeout for fx_transfer ${fx_transfer_row.commit_request_id}`
+                        `SELECT timeout for fx_transfer ${fx_transfer_row.commit_request_id}`
                     );
+
+                    if (!existingFxTransfer) {
+                        await withTimeout(
+                            dbInstance('fx_transfer').insert(fx_transfer_row),
+                            queryTimeout,
+                            `INSERT timeout for fx_transfer ${fx_transfer_row.commit_request_id}`
+                        );
+                        logger.debug(`Inserted new fx_transfer ${fx_transfer_row.commit_request_id}`);
+                    } else if (existingFxTransfer.conversion_state !== fx_transfer_row.conversion_state) {
+                        await withTimeout(
+                            dbInstance('fx_transfer')
+                                .where('redis_key', fx_transfer_row.redis_key)
+                                .where('commit_request_id', fx_transfer_row.commit_request_id)
+                                .update(fx_transfer_row),
+                            queryTimeout,
+                            `UPDATE timeout for fx_transfer ${fx_transfer_row.commit_request_id}`
+                        );
+                        logger.debug(`Updated fx_transfer ${fx_transfer_row.commit_request_id}`);
+                    }
                 } catch (err) {
                     if (err.message.includes('timeout')) {
-                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('FX transfer insert timed out, will retry next sync');
+                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('FX transfer operation timed out, will retry next sync');
                     } else {
-                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('Error inserting fx_transfer');
+                        logger.push({ err, redis_key: fx_transfer_row.redis_key }).log('Error processing fx_transfer');
                     }
                 }
             }
@@ -586,38 +645,76 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 if (fxQuoteRow) {
                     if (fxQuoteRow !== undefined && fxQuoteRow !== null) {
                         try {
-                            await withTimeout(
+                            const existingFxQuote = await withTimeout(
                                 dbInstance('fx_quote')
-                                    .insert(fxQuoteRow)
-                                    .onConflict(['redis_key', 'conversion_request_id'])
-                                    .ignore(),
+                                    .where('redis_key', fxQuoteRow.redis_key)
+                                    .where('conversion_request_id', fxQuoteRow.conversion_request_id)
+                                    .first('success'),
                                 queryTimeout,
-                                `INSERT timeout for fx_quote ${fxQuoteRow.conversion_request_id}`
+                                `SELECT timeout for fx_quote ${fxQuoteRow.conversion_request_id}`
                             );
+
+                            if (!existingFxQuote) {
+                                await withTimeout(
+                                    dbInstance('fx_quote').insert(fxQuoteRow),
+                                    queryTimeout,
+                                    `INSERT timeout for fx_quote ${fxQuoteRow.conversion_request_id}`
+                                );
+                                logger.debug(`Inserted new fx_quote ${fxQuoteRow.conversion_request_id}`);
+                            } else if (existingFxQuote.success !== fxQuoteRow.success) {
+                                await withTimeout(
+                                    dbInstance('fx_quote')
+                                        .where('redis_key', fxQuoteRow.redis_key)
+                                        .where('conversion_request_id', fxQuoteRow.conversion_request_id)
+                                        .update(fxQuoteRow),
+                                    queryTimeout,
+                                    `UPDATE timeout for fx_quote ${fxQuoteRow.conversion_request_id}`
+                                );
+                                logger.debug(`Updated fx_quote ${fxQuoteRow.conversion_request_id}`);
+                            }
                         } catch (err) {
                             if (err.message.includes('timeout')) {
-                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('FX quote insert timed out, will retry next sync');
+                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('FX quote operation timed out, will retry next sync');
                             } else {
-                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('Error inserting fx_quote');
+                                logger.push({ err, redis_key: fxQuoteRow.redis_key }).log('Error processing fx_quote');
                             }
                         }
                     }
 
                     if (fxTransferRow !== undefined && fxTransferRow !== null) {
                         try {
-                            await withTimeout(
+                            const existingFxTransfer = await withTimeout(
                                 dbInstance('fx_transfer')
-                                    .insert(fxTransferRow)
-                                    .onConflict(['redis_key', 'commit_request_id'])
-                                    .ignore(),
+                                    .where('redis_key', fxTransferRow.redis_key)
+                                    .where('commit_request_id', fxTransferRow.commit_request_id)
+                                    .first('conversion_state'),
                                 queryTimeout,
-                                `INSERT timeout for fx_transfer ${fxTransferRow.commit_request_id}`
+                                `SELECT timeout for fx_transfer ${fxTransferRow.commit_request_id}`
                             );
+
+                            if (!existingFxTransfer) {
+                                await withTimeout(
+                                    dbInstance('fx_transfer').insert(fxTransferRow),
+                                    queryTimeout,
+                                    `INSERT timeout for fx_transfer ${fxTransferRow.commit_request_id}`
+                                );
+                                logger.debug(`Inserted new fx_transfer ${fxTransferRow.commit_request_id}`);
+                            } else if (existingFxTransfer.conversion_state !== fxTransferRow.conversion_state) {
+                                await withTimeout(
+                                    dbInstance('fx_transfer')
+                                        .where('redis_key', fxTransferRow.redis_key)
+                                        .where('commit_request_id', fxTransferRow.commit_request_id)
+                                        .update(fxTransferRow),
+                                    queryTimeout,
+                                    `UPDATE timeout for fx_transfer ${fxTransferRow.commit_request_id}`
+                                );
+                                logger.debug(`Updated fx_transfer ${fxTransferRow.commit_request_id}`);
+                            }
                         } catch (err) {
                             if (err.message.includes('timeout')) {
-                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('FX transfer insert timed out, will retry next sync');
+                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('FX transfer operation timed out, will retry next sync');
                             } else {
-                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('Error inserting fx_transfer');
+                                logger.push({ err, redis_key: fxTransferRow.redis_key }).log('Error processing fx_transfer');
                             }
                         }
                     }
