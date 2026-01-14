@@ -54,7 +54,6 @@ async function up(knex) {
     });
 
     console.log(`[Migration] ✓ Table ${TABLE_NAME} created successfully`);
-    console.log(`[Migration] Expected memory savings: ~115 MB (eliminates in-memory tracking arrays)`);
 }
 
 async function down(knex) {

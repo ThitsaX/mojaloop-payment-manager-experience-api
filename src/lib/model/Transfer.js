@@ -320,14 +320,14 @@ class Transfer {
         let raw = {};
         try {
             raw = JSON.parse(transfer.raw);
-            this.logger.log('Raw data from transfer.raw:', raw);
+            this.logger.debug('Raw data from transfer.raw:', raw);
         } catch (e) {
             this.logger.error(`Error at _convertToApiDetailFormat function: ${e}`);
         }
 
         try {
             raw = this._parseRawTransferRequestBodies(raw);
-            this.logger.log('Raw data from transfer.raw:', raw);
+            this.logger.debug('Raw data from transfer.raw:', raw);
         }
         catch (e) {
             this.logger.error(`Error at _parseRawTransferRequestBodies function: ${e}`);
