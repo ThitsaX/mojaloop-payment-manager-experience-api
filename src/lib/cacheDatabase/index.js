@@ -212,8 +212,8 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                         data.quoteRequest?.body?.payee?.partyIdInfo?.partySubIdOrType,
                     recipient_id_value:
                         data.quoteRequest?.body?.payee?.partyIdInfo?.partyIdentifier,
-                    amount: data.quoteResponse?.body?.transferAmount?.amount ?? null,
-                    currency: data.quoteResponse?.body?.transferAmount?.currency ?? null,
+                    amount: data.quoteResponse?.body?.transferAmount?.amount ?? data.quoteRequest?.body?.amount?.amount ?? null,
+                    currency: data.quoteResponse?.body?.transferAmount?.currency ?? data.quoteRequest?.body?.amount?.currency ?? null,
                     direction: -1,
                     batch_id: '',
                     details: data.quoteRequest?.body?.note,
