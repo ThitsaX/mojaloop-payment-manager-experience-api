@@ -419,7 +419,6 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                         queryTimeout,
                         `UPDATE timeout for transfer ${row.id}`
                     );
-                    logger.debug(`Updated transfer ${row.id}: ${existing.success} -> ${row.success}`);
                 }
                 // else: No change, skip (saves unnecessary writes)
             } catch (err) {
@@ -730,32 +729,101 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
     // Batch processing configuration
     const SCAN_COUNT = config.syncBatchSize || 100; // Number of keys to fetch per SCAN iteration
     const MAX_INITIAL_SYNC_KEYS = isInitialSync ? (config.maxInitialSyncKeys || 1000) : null;
+    const BATCH_TIMEOUT_MS = config.batchTimeoutMs || 120000; // 2 minutes default
+    const SCAN_TIMEOUT_MS = config.scanTimeoutMs || 30000; // 30 seconds default
+    const SAVE_STATE_TIMEOUT_MS = config.saveStateTimeoutMs || 30000; // 30 seconds default
 
-    // Utility function to process keys in batches
     const processBatch = async (keys) => {
-        const results = [];
-        const trx = await db.transaction();
+        let trx = null;
+        let isCompleted = false;
+        let isTimedOut = false;
+        let timeoutId = null;
+
+        // Track results minimally - only count, don't store all objects
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = []; // Only store first few errors
 
         try {
+            // Create timeout that will rollback transaction
+            timeoutId = setTimeout(async () => {
+                isTimedOut = true;
+                if (trx && !isCompleted) {
+                    logger.log(`Batch timeout after ${BATCH_TIMEOUT_MS}ms - forcing rollback (${successCount}/${keys.length} processed)`);
+                    try {
+                        await trx.rollback();
+                    } catch (rollbackErr) {
+                        // Transaction might already be rolled back or connection lost
+                        logger.push({ err: rollbackErr }).log('Rollback after timeout failed (may already be rolled back)');
+                    }
+                }
+            }, BATCH_TIMEOUT_MS);
+
+            if (isTimedOut) {
+                throw new Error('Batch timed out before starting');
+            }
+
+            trx = await db.transaction();
+
+            // Set transaction-level timeout as additional safety
+            await trx.raw(`SET SESSION max_execution_time = ${BATCH_TIMEOUT_MS}`);
+
             for (const key of keys) {
+                // Check timeout between each key
+                if (isTimedOut) {
+                    throw new Error(`Batch timed out while processing (${successCount}/${keys.length} keys done)`);
+                }
+
                 try {
                     await cacheKey(key, trx);
-                    results.push({ key, status: 'success' });
+                    successCount++;
                 } catch (err) {
+                    errorCount++;
+                    // Store first 10 errors to prevent memory bloat
+                    if (errors.length < 10) {
+                        errors.push({ key, error: err.message });
+                    }
                     logger.push({ err, key }).log('Error processing key in batch');
-                    results.push({ key, status: 'error', error: err.message });
                 }
             }
 
+            // Final timeout check before commit
+            if (isTimedOut) {
+                throw new Error('Batch timed out before commit');
+            }
+
             await trx.commit();
+            isCompleted = true;
 
         } catch (err) {
-            await trx.rollback();
+            // Only rollback if not already done by timeout handler
+            if (trx && !isTimedOut) {
+                try {
+                    await trx.rollback();
+                } catch (rollbackErr) {
+                    // Ignore - may already be rolled back
+                }
+            }
             logger.push({ err }).log('Batch transaction failed, rolled back');
             throw err;
+
+        } finally {
+            // Clear timeout to prevent memory leak
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            isCompleted = true;
+            trx = null;
         }
 
-        return results;
+        // Return minimal result object
+        return {
+            total: keys.length,
+            success: successCount,
+            errors: errorCount,
+            errorSamples: errors // Only first 10 errors
+        };
     };
 
     // Helper function to load sync state from database
@@ -773,20 +841,28 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
 
     // Helper function to save sync state to database
     const saveSyncState = async (keyPattern, cursor, totalProcessed) => {
-        await db('sync_state')
-            .insert({
-                key_pattern: keyPattern,
-                last_cursor: cursor,
-                total_processed: totalProcessed,
-                last_synced_at: db.fn.now()
-            })
-            .onConflict('key_pattern')
-            .merge({
+        // Try UPDATE first (row exists most common case)
+        const updated = await db('sync_state')
+            .where('key_pattern', keyPattern)
+            .update({
                 last_cursor: cursor,
                 total_processed: totalProcessed,
                 last_synced_at: db.fn.now(),
                 updated_at: db.fn.now()
             });
+
+        // Only INSERT if row doesn't exist
+        if (updated === 0) {
+            await db('sync_state')
+                .insert({
+                    key_pattern: keyPattern,
+                    last_cursor: cursor,
+                    total_processed: totalProcessed,
+                    last_synced_at: db.fn.now()
+                })
+                .onConflict('key_pattern')
+                .ignore(); // Ignore if another process inserted meanwhile
+        }
     };
 
     // Available key patterns in redis
@@ -813,26 +889,48 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
             while (!cycleComplete) {
                 batchNumber++;
 
-                // SCAN returns [nextCursor, keys]
-                const [nextCursor, keys] = await redisCache.scan(cursor, keyPattern, SCAN_COUNT);
+                // SCAN with timeout protection
+                let nextCursor, keys;
+                try {
+                    [nextCursor, keys] = await withTimeout(
+                        redisCache.scan(cursor, keyPattern, SCAN_COUNT),
+                        SCAN_TIMEOUT_MS,
+                        `Redis SCAN timed out for pattern ${keyPattern} at cursor ${cursor}`
+                    );
+                } catch (err) {
+                    logger.push({ err }).log('Redis SCAN failed, will retry next sync cycle');
+                    break; // Exit this pattern, continue with next sync interval
+                }
 
                 if (keys.length > 0) {
                     logger.log(`Processing batch ${batchNumber} from cursor ${cursor}: ${keys.length} keys found`);
 
                     // Process the batch
-                    const batchResults = await processBatch(keys);
-                    const batchErrors = batchResults.filter(r => r.status === 'error').length;
+                    const batchResult = await processBatch(keys);
+                    const batchErrors = batchResult.errors;
 
                     patternTotalProcessed += keys.length;
                     totalProcessed += keys.length;
                     totalErrors += batchErrors;
 
                     if (batchErrors > 0) {
-                        logger.log(`Batch ${batchNumber} completed with ${batchErrors} errors out of ${keys.length} keys`);
+                        logger.log(`Batch ${batchNumber}: ${batchResult.success}/${batchResult.total} succeeded, ${batchErrors} errors`);
+                        if (batchResult.errorSamples.length > 0) {
+                            logger.push({ samples: batchResult.errorSamples }).log('Error samples from batch');
+                        }
                     }
 
-                    // Save checkpoint after each batch
-                    await saveSyncState(keyPattern, nextCursor, patternTotalProcessed);
+                    // Save checkpoint with timeout protection
+                    try {
+                        await withTimeout(
+                            saveSyncState(keyPattern, nextCursor, patternTotalProcessed),
+                            SAVE_STATE_TIMEOUT_MS,
+                            `saveSyncState timed out for pattern ${keyPattern}`
+                        );
+                    } catch (err) {
+                        logger.push({ err }).log('Failed to save sync state, will retry next cycle');
+                        break; // Won't continue without saving checkpoint
+                    }
 
                     // Small delay between batches to prevent memory/CPU spikes
                     await new Promise(resolve => setTimeout(resolve, 10));
@@ -845,8 +943,16 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                     cycleComplete = true;
                     logger.log(`Full scan cycle complete for pattern ${keyPattern}. Processed ${patternTotalProcessed} keys total.`);
 
-                    // Reset counter for next cycle
-                    await saveSyncState(keyPattern, '0', 0);
+                    // Reset counter for next cycle with timeout
+                    try {
+                        await withTimeout(
+                            saveSyncState(keyPattern, '0', 0),
+                            SAVE_STATE_TIMEOUT_MS,
+                            `saveSyncState (reset) timed out for pattern ${keyPattern}`
+                        );
+                    } catch (err) {
+                        logger.push({ err }).log('Failed to reset sync state after cycle complete');
+                    }
                 } else {
                     cursor = nextCursor;
                 }
@@ -945,6 +1051,8 @@ const createMemoryCache = async (config) => {
             lastSyncCompletedAt = Date.now();
         } catch (err) {
             config.logger.push({ err }).log('Error in background sync');
+            // Update lastSyncCompletedAt on error to prevent false stuck detection
+            lastSyncCompletedAt = Date.now();
         } finally {
             backgroundSyncRunning = false;
         }
@@ -960,7 +1068,7 @@ const createMemoryCache = async (config) => {
             config.logger.push({ err }).log('Initial sync failed, service will continue with empty cache');
             // Service continues - critical for preventing restart loops
         }
-        
+
         // Set up periodic sync
         const interval = setInterval(doProgressiveSync, (config.syncInterval || 60) * 1e3);
         db.stopSync = () => clearInterval(interval);
@@ -968,6 +1076,50 @@ const createMemoryCache = async (config) => {
         db.sync = doSyncDB;
     }
     db.redisCache = () => redisCache; // for testing purposes
+
+    // Graceful shutdown steps - stops sync, closes Redis, destroys DB pool
+    db.shutdown = async () => {
+        config.logger.log('Initiating graceful shutdown of cache database...');
+
+        // Stop periodic sync to prevent new sync cycles
+        if (db.stopSync) {
+            config.logger.log('Stopping periodic sync...');
+            db.stopSync();
+        }
+
+        // Wait for current sync to complete (with timeout)
+        if (backgroundSyncRunning) {
+            config.logger.log('Waiting for current sync to complete (max 30s)...');
+            const maxWait = 30000;
+            const startWait = Date.now();
+            while (backgroundSyncRunning && (Date.now() - startWait) < maxWait) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            if (backgroundSyncRunning) {
+                config.logger.log('Sync did not complete within timeout, proceeding with shutdown');
+            }
+        }
+
+        // 3. Close Redis connection
+        try {
+            config.logger.log('Closing Redis connection...');
+            await redisCache.disconnect();
+            config.logger.log('Redis connection closed');
+        } catch (err) {
+            config.logger.push({ err }).log('Error closing Redis connection');
+        }
+
+        // 4. Destroy database connection pool
+        try {
+            config.logger.log('Destroying database connection pool...');
+            await db.destroy();
+            config.logger.log('Database connection pool destroyed');
+        } catch (err) {
+            config.logger.push({ err }).log('Error destroying database pool');
+        }
+
+        config.logger.log('Graceful shutdown complete');
+    };
 
     return db;
 };

@@ -29,6 +29,9 @@ module.exports = {
         maxInitialSyncKeys: env.get('CACHE_MAX_INITIAL_SYNC_KEYS').default(1000).asIntPositive(),
         queryTimeout: env.get('DATABASE_QUERY_TIMEOUT_MS').default(180000).asIntPositive(),
         syncStuckDetectionMs: env.get('SYNC_STUCK_DETECTION_MS').default(300000).asIntPositive(),
+        batchTimeoutMs: env.get('CACHE_BATCH_TIMEOUT_MS').default(120000).asIntPositive(),
+        scanTimeoutMs: env.get('CACHE_SCAN_TIMEOUT_MS').default(30000).asIntPositive(),
+        saveStateTimeoutMs: env.get('CACHE_SAVE_STATE_TIMEOUT_MS').default(30000).asIntPositive(),
     },
     databaseConfig: {
         host: env.get('DATABASE_HOST').required().asString(),
