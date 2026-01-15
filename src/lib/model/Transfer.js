@@ -687,7 +687,9 @@ class Transfer {
             ])
             .whereRaw('true');
         if (opts.id) {
-            query.andWhere('id', 'LIKE', `%${opts.id}%`);
+            // Use exact match for performance (allows index usage)
+            // LIKE '%id%' forces full table scan on 700K+ rows
+            query.andWhere('id', '=', opts.id);
         }
         if (opts.startTimestamp) {
             query.andWhere(
@@ -800,7 +802,8 @@ class Transfer {
         this._applyJoin(query);
 
         if (opts.id) {
-            query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);
+            // Use exact match for performance (allows index usage)
+            query.andWhere('transfer.id', '=', opts.id);
         }
         if (opts.startTimestamp) {
             query.andWhere(
@@ -1156,7 +1159,8 @@ class Transfer {
         // Skip JOINs for better performance (count() doesn't filter by FX fields)
 
         if (opts.id) {
-            query.andWhere('transfer.id', 'LIKE', `%${opts.id}%`);
+            // Use exact match for performance (allows index usage)
+            query.andWhere('transfer.id', '=', opts.id);
         }
         if (opts.startTimestamp) {
             query.andWhere(
