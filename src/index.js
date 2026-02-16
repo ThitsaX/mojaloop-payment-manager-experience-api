@@ -27,10 +27,41 @@ if(require.main === module) {
 
         // handle SIGTERM to exit gracefully
         process.on('SIGTERM', async () => {
-            console.log('SIGTERM received. Shutting down APIs...');
+            console.log('SIGTERM received. Shutting down gracefully...');
 
-            await svr.stop();
-            process.exit(0);
+            try {
+                //Stop accepting new requests
+                await svr.stop();
+                console.log('Server stopped accepting new requests');
+
+                //Shutdown database and cache connections
+                if (db.shutdown) {
+                    await db.shutdown();
+                }
+
+                console.log('Shutdown complete');
+                process.exit(0);
+            } catch (err) {
+                console.error('Error during shutdown:', err);
+                process.exit(1);
+            }
+        });
+
+        // handle SIGINT
+        process.on('SIGINT', async () => {
+            console.log('SIGINT received. Shutting down gracefully...');
+
+            try {
+                await svr.stop();
+                if (db.shutdown) {
+                    await db.shutdown();
+                }
+                console.log('Graceful shutdown complete');
+                process.exit(0);
+            } catch (err) {
+                console.error('Error during graceful shutdown:', err);
+                process.exit(1);
+            }
         });
 
         await svr.setupApi();
