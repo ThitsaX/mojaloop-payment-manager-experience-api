@@ -1243,6 +1243,126 @@ class Transfer {
         const result = await query.count('* as count').first();
         return { count: result.count };
     }
+
+    /**
+     * Returns dispute-eligible transfers:
+     *   success = 0 (errored) AND finalNotification.transferState = 'COMMITTED'
+     *
+     * @param opts {Object}
+     * @param [opts.startTimestamp] {string}
+     * @param [opts.endTimestamp] {string}
+     * @param [opts.direction] {string}  'INBOUND' | 'OUTBOUND' | undefined (All)
+     * @param [opts.currency] {string}   'USD' | 'LRD' | 'ALL' | undefined
+     * @param [opts.institution] {string}
+     * @param [opts.cursor] {string}
+     * @param [opts.limit] {number}
+     */
+    async disputeTransactions(opts) {
+        const query = this._db('transfer')
+            .select([
+                'id',
+                'success',
+                'sender',
+                'sender_id_type',
+                'sender_id_sub_value',
+                'sender_id_value',
+                'recipient',
+                'recipient_id_type',
+                'recipient_id_sub_value',
+                'recipient_id_value',
+                'amount',
+                'currency',
+                'direction',
+                'batch_id',
+                'details',
+                'dfsp',
+                'created_at',
+            ])
+            // Fixed conditions: errored transfers that were COMMITTED
+            .where('success', 0)
+            .whereRaw("JSON_EXTRACT(raw, '$.finalNotification.transferState') = 'COMMITTED'")
+            .whereRaw("JSON_EXTRACT(raw, '$.lastError') IS NOT NULL");
+
+        if (opts.startTimestamp) {
+            query.andWhere('created_at', '>=', new Date(opts.startTimestamp).getTime());
+        }
+        if (opts.endTimestamp) {
+            query.andWhere('created_at', '<', new Date(opts.endTimestamp).getTime());
+        }
+        if (opts.direction) {
+            if (opts.direction === 'INBOUND') {
+                query.andWhere('direction', '=', '-1');
+            } else if (opts.direction === 'OUTBOUND') {
+                query.andWhere('direction', '=', '1');
+            }
+        }
+        if (opts.currency && opts.currency !== 'ALL') {
+            query.andWhere('currency', '=', opts.currency);
+        }
+        if (opts.institution) {
+            query.andWhere('dfsp', 'LIKE', `%${opts.institution}%`);
+        }
+
+        // Cursor-based pagination
+        if (opts.cursor) {
+            const [cursorCreatedAt, cursorId] = opts.cursor.split('|');
+            query.andWhere(function() {
+                this.where('created_at', '<', parseInt(cursorCreatedAt))
+                    .orWhere(function() {
+                        this.where('created_at', '=', parseInt(cursorCreatedAt))
+                            .andWhere('id', '<', cursorId);
+                    });
+            });
+        }
+        if (opts.limit) {
+            query.limit(parseInt(opts.limit));
+        }
+
+        query.orderBy('created_at', 'desc').orderBy('id', 'desc');
+
+        const rows = await query;
+        return rows.map(this._convertToApiFormat.bind(this));
+    }
+
+    /**
+     * Count dispute-eligible transfers (same conditions as disputeTransactions)
+     *
+     * @param opts {Object}
+     * @param [opts.startTimestamp] {string}
+     * @param [opts.endTimestamp] {string}
+     * @param [opts.direction] {string}
+     * @param [opts.currency] {string}
+     * @param [opts.institution] {string}
+     */
+    async disputeTransactionsCount(opts) {
+        const query = this._db('transfer')
+            .where('success', 0)
+            .whereRaw("JSON_EXTRACT(raw, '$.finalNotification.transferState') = 'COMMITTED'")
+            .whereRaw("JSON_EXTRACT(raw, '$.lastError') IS NOT NULL");
+
+        if (opts.startTimestamp) {
+            query.andWhere('created_at', '>=', new Date(opts.startTimestamp).getTime());
+        }
+        if (opts.endTimestamp) {
+            query.andWhere('created_at', '<', new Date(opts.endTimestamp).getTime());
+        }
+        if (opts.direction) {
+            if (opts.direction === 'INBOUND') {
+                query.andWhere('direction', '=', '-1');
+            } else if (opts.direction === 'OUTBOUND') {
+                query.andWhere('direction', '=', '1');
+            }
+        }
+        if (opts.currency && opts.currency !== 'ALL') {
+            query.andWhere('currency', '=', opts.currency);
+        }
+        if (opts.institution) {
+            query.andWhere('dfsp', 'LIKE', `%${opts.institution}%`);
+        }
+
+        const result = await query.count('id as count').first();
+        return { count: Number(result.count) };
+    }
 }
 
 Transfer.STATUSES = {

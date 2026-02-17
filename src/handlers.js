@@ -114,6 +114,25 @@ const getTransferStatusSummary = async (ctx) => {
     ctx.body = await transfer.statusSummary({ startTimestamp, endTimestamp });
 };
 
+const getDisputeTransactions = async (ctx) => {
+    const { startTimestamp, endTimestamp, direction, currency, institution, cursor, limit } = ctx.query;
+    const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
+    const results = await transfer.disputeTransactions({ startTimestamp, endTimestamp, direction, currency, institution, cursor, limit });
+    ctx.body = {
+        transfers: results,
+        nextCursor: results.length > 0
+            ? `${new Date(results[results.length - 1].initiatedTimestamp).getTime()}|${results[results.length - 1].id}`
+            : null,
+        hasMore: results.length === parseInt(limit || 50),
+    };
+};
+
+const getDisputeTransactionsCount = async (ctx) => {
+    const { startTimestamp, endTimestamp, direction, currency, institution } = ctx.query;
+    const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
+    ctx.body = await transfer.disputeTransactionsCount({ startTimestamp, endTimestamp, direction, currency, institution });
+};
+
 const getTransfer = async (ctx) => {
     const transfer = new Transfer({ ...ctx.state.conf, logger: ctx.state.logger, db: ctx.state.db });
     ctx.body = await transfer.findOne(ctx.params.transferId);
@@ -572,6 +591,12 @@ module.exports = {
     },
     '/transfers/count': {
         get: getTransfersCount,
+    },
+    '/transfers/dispute': {
+        get: getDisputeTransactions,
+    },
+    '/transfers/dispute/count': {
+        get: getDisputeTransactionsCount,
     },
     '/transfers/{transferId}': {
         get: getTransfer,
