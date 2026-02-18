@@ -237,6 +237,186 @@ paths:
                 items:
                   $ref: '#/components/schemas/Transfer'
 
+  /transfers/count:
+    get:
+      summary: Retrieves the count of transfers matching the given filters
+      operationId: getTransfersCount
+      parameters:
+      - in: query
+        name: startTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: endTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: id
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: senderIdType
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: senderIdValue
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: senderIdSubValue
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: recipientIdType
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: recipientIdValue
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: recipientIdSubValue
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: direction
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: institution
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          $ref: "#/components/schemas/TransferStatus"
+      - in: query
+        name: batchId
+        required: false
+        schema:
+          type: string
+      responses:
+        200:
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+
+  /transfers/dispute:
+    get:
+      summary: Retrieves dispute-eligible transfers
+      operationId: getDisputeTransactions
+      parameters:
+      - in: query
+        name: startTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: endTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: direction
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: currency
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: institution
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+      responses:
+        200:
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transfers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transfer'
+                  nextCursor:
+                    type: string
+                    nullable: true
+                  hasMore:
+                    type: boolean
+
+  /transfers/dispute/count:
+    get:
+      summary: Retrieves the count of dispute-eligible transfers
+      operationId: getDisputeTransactionsCount
+      parameters:
+      - in: query
+        name: startTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: endTimestamp
+        required: false
+        schema:
+          $ref: "#/components/schemas/Timestamp"
+      - in: query
+        name: direction
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: currency
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: institution
+        required: false
+        schema:
+          type: string
+      responses:
+        200:
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+
   /fxpConversions:
     get:
       summary: Retrieves all transfers
