@@ -134,6 +134,19 @@ class Transfer {
                 transfer.success === 0 && raw.lastError
                     ? Transfer._transferLastErrorToErrorType(raw.lastError)
                     : null,
+            lastError: (() => {
+                if (transfer.lastError !== undefined && transfer.lastError !== null) {
+                    // JSON_EXTRACT returns a plain string for scalar values and a JSON
+                    // string for object values. Try to parse; fall back to raw string.
+                    try {
+                        return JSON.parse(transfer.lastError);
+                    } catch (_) {
+                        return transfer.lastError;
+                    }
+                }
+                // Fall back to raw.lastError for queries that select the raw column
+                return raw.lastError || null;
+            })(),
         };
     }
 
@@ -1277,6 +1290,7 @@ class Transfer {
                 'details',
                 'dfsp',
                 'created_at',
+                this._db.raw("JSON_EXTRACT(raw, '$.lastError') as lastError"),
             ])
             // Fixed conditions: errored transfers that were COMMITTED
             .where('success', 0)
