@@ -197,6 +197,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 raw: stringifyTransferData(data, config.sanitizeTransferRawData),
                 created_at: initiatedTimestamp,
                 completed_at: completedTimestamp,
+                home_transfer_id: data.homeTransactionId || null,
                 ...(data.direction === 'INBOUND' && {
                     sender: getPartyNameFromQuoteRequest(data.quoteRequest, 'payer'),
                     sender_id_type:
@@ -397,7 +398,7 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                 const existing = await withTimeout(
                     dbInstance('transfer')
                         .where('id', row.id)
-                        .first('success'),
+                        .first('success', 'home_transfer_id'),
                     queryTimeout,
                     `SELECT timeout for transfer ${row.id}`
                 );
@@ -410,8 +411,8 @@ async function syncDB({ redisCache, db, logger, isInitialSync = false, config = 
                         `INSERT timeout for transfer ${row.id}`
                     );
                     logger.debug(`Inserted new transfer ${row.id}`);
-                } else if (existing.success !== row.success) {
-                    // Status changed - UPDATE everything for consistency
+                } else if (existing.success !== row.success || existing.home_transfer_id !== row.home_transfer_id) {
+                    // Status or homeTransactionId changed - UPDATE everything for consistency
                     await withTimeout(
                         dbInstance('transfer')
                             .where('id', row.id)
