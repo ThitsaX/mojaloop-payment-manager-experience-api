@@ -128,7 +128,7 @@ class Transfer {
             recipientIdType: transfer.recipient_id_type,
             recipientIdSubValue: transfer.recipient_id_sub_value,
             recipientIdValue: transfer.recipient_id_value,
-            homeTransferId: raw.homeTransactionId || null,
+            homeTransferId: transfer.home_transfer_id || raw.homeTransactionId || null,
             details: transfer.details,
             errorType:
                 transfer.success === 0 && raw.lastError
@@ -694,7 +694,8 @@ class Transfer {
                 'batch_id',
                 'details',
                 'dfsp',
-                'created_at'
+                'created_at',
+                'home_transfer_id',
                 // EXCLUDE 'raw': not needed for list view
                 // EXCLUDE 'completed_at', 'redis_key', 'supported_currencies': not needed for list view
             ])
