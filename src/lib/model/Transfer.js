@@ -696,7 +696,8 @@ class Transfer {
                 'dfsp',
                 'created_at',
                 'home_transfer_id',
-                // EXCLUDE 'raw': not needed for list view
+                this._db.raw("JSON_EXTRACT(raw, '$.lastError') as lastError"),
+                // EXCLUDE full 'raw': not needed for list view
                 // EXCLUDE 'completed_at', 'redis_key', 'supported_currencies': not needed for list view
             ])
             .whereRaw('true');
